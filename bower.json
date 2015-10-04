@@ -10,12 +10,12 @@
   "main": "miruken-ng-bundle.js",
   "ignore": [
     ".gitignore",
-    "bower.json",
+    "bower.json"
   ],
   "dependencies": {
     "angular": "~1.4.6",
     "angular-ui-router": "~0.2.15"
-  }
+  },
   "keywords": [
     "miruken",
     "angular",
