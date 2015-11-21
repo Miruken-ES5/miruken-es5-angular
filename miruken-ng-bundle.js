@@ -6832,7 +6832,7 @@ new function () { // closure
      */
     base2.package(this, {
         name:    "miruken",
-        version: "0.0.20",
+        version: "0.0.21",
         exports: "Enum,Variance,Protocol,StrictProtocol,Delegate,Miruken,MetaStep,MetaMacro,Initializing,Disposing,DisposingMixin,Invoking,Parenting,Starting,Startup,Facet,Interceptor,InterceptorSelector,ProxyBuilder,Modifier,ArrayManager,IndexedList,$isProtocol,$isClass,$classOf,$ancestorOf,$isString,$isFunction,$isObject,$isArray,$isPromise,$isNothing,$isSomething,$using,$lift,$equals,$decorator,$decorate,$decorated,$debounce,$eq,$use,$copy,$lazy,$eval,$every,$child,$optional,$promise,$instant,$createModifier,$properties,$inferProperties,$inheritStatic"
     });
 
@@ -7734,7 +7734,7 @@ new function () { // closure
                         properties = expanded[this.tag] = (properties || {});
                     }
                     Object.defineProperty(expanded, name, spec);
-                    var property = properties[name] = {};
+                    var property = properties[name] || (properties[name] = {});
                     if (descriptor.get) {
                         property.get = descriptor.get;
                     }
