@@ -4434,6 +4434,14 @@ new function () { // closure
                 composer = context.$descendantOrSelf();
             }
             return composer.$notify();
+        },
+        $publishFromRoot: function () {
+            var composer = this;
+            var context = ContextualHelper.resolveContext(composer);
+            if (context) {
+                composer = context.root.$descendantOrSelf();
+            }
+            return composer.$notify();
         }
     });
     
@@ -5593,7 +5601,7 @@ new function () { // closure
     miruken.package(this, {
         name:    "ioc",
         imports: "miruken,miruken.graph,miruken.callback,miruken.context,miruken.validate",
-        exports: "Container,Registration,ComponentPolicy,Lifestyle,TransientLifestyle,SingletonLifestyle,ContextualLifestyle,DependencyModifiers,DependencyModel,DependencyManager,DependencyInspector,ComponentModel,ComponentBuilder,ComponentModelError,IoContainer,DependencyResolution,DependencyResolutionError,$component,$$composer,$container"
+        exports: "Container,Registration,ComponentPolicy,Lifestyle,TransientLifestyle,SingletonLifestyle,ContextualLifestyle,DependencyModifier,DependencyModel,DependencyManager,DependencyInspector,ComponentModel,ComponentBuilder,ComponentModelError,IoContainer,DependencyResolution,DependencyResolutionError,$component,$$composer,$container"
     });
 
     eval(this.imports);
@@ -5693,11 +5701,11 @@ new function () { // closure
     });
 
     /**
-     * DependencyModifiers flags enum
-     * @class DependencyModifiers
+     * DependencyModifier flags enum
+     * @class DependencyModifier
      * @extends miruken.Enum
      */    
-    var DependencyModifiers = Enum({
+    var DependencyModifier = Enum({
         /**
          * No dependency modifiers.
          * @property {number} None
@@ -5722,7 +5730,7 @@ new function () { // closure
          * See {{#crossLink "miruken.Modifier/$eval:attribute"}}{{/crossLink}}
          * @property {number} Dynamic
          */
-        Dynamic:    1 << 3,
+        Dynamic: 1 << 3,
         /**
          * See {{#crossLink "miruken.Modifier/$optional:attribute"}}{{/crossLink}}
          * @property {number} Optional
@@ -5755,39 +5763,39 @@ new function () { // closure
      * @class DependencyModel
      * @constructor
      * @param {Any} dependency  -  annotated dependency
-     * @param {miruken.ioc.DependencyModifiers} modifiers  -  dependency annotations
+     * @param {miruken.ioc.DependencyModifier} modifiers  -  dependency annotations
      * @extends Base
      */
     var DependencyModel = Base.extend({
         constructor: function (dependency, modifiers) {
-            modifiers = +(modifiers || DependencyModifiers.None);
+            modifiers = +(modifiers || DependencyModifier.None);
             if (dependency instanceof Modifier) {
                 if ($use.test(dependency)) {
-                    modifiers = modifiers | DependencyModifiers.Use;
+                    modifiers = modifiers | DependencyModifier.Use;
                 }
                 if ($lazy.test(dependency)) {
-                    modifiers = modifiers | DependencyModifiers.Lazy;
+                    modifiers = modifiers | DependencyModifier.Lazy;
                 }
                 if ($every.test(dependency)) {
-                    modifiers = modifiers | DependencyModifiers.Every;
+                    modifiers = modifiers | DependencyModifier.Every;
                 }
                 if ($eval.test(dependency)) {
-                    modifiers = modifiers | DependencyModifiers.Dynamic;
+                    modifiers = modifiers | DependencyModifier.Dynamic;
                 }
                 if ($child.test(dependency)) {
-                    modifiers = modifiers | DependencyModifiers.Child;
+                    modifiers = modifiers | DependencyModifier.Child;
                 }
                 if ($optional.test(dependency)) {
-                    modifiers = modifiers | DependencyModifiers.Optional;
+                    modifiers = modifiers | DependencyModifier.Optional;
                 }
                 if ($promise.test(dependency)) {
-                    modifiers = modifiers | DependencyModifiers.Promise;
+                    modifiers = modifiers | DependencyModifier.Promise;
                 }
                 if ($container.test(dependency)) {
-                    modifiers = modifiers | DependencyModifiers.Container;
+                    modifiers = modifiers | DependencyModifier.Container;
                 }
                 if ($eq.test(dependency)) {
-                    modifiers = modifiers | DependencyModifiers.Invariant;
+                    modifiers = modifiers | DependencyModifier.Invariant;
                 }
                 dependency = Modifier.unwrap(dependency);
             }
@@ -5800,7 +5808,7 @@ new function () { // closure
                 get dependency() { return dependency; },
                 /**
                  * Gets the dependency flags.
-                 * @property {miruken.ioc.DependencyModifiers} modifiers
+                 * @property {miruken.ioc.DependencyModifier} modifiers
                  * @readOnly
                  */                        
                 get modifiers() { return modifiers; }
@@ -5809,7 +5817,7 @@ new function () { // closure
         /**
          * Tests if the receiving dependency is annotated with the modifier.
          * @method test
-         * @param   {miruken.ioc.DependencyModifiers}  modifier  -  modifier flags
+         * @param   {miruken.ioc.DependencyModifier}  modifier  -  modifier flags
          * @returns {boolean} true if the dependency is annotated with modifier(s).
          */        
         test: function (modifier) {
@@ -6743,11 +6751,11 @@ new function () { // closure
                 if (dep === undefined) {
                     continue;
                 }
-                var use        = dep.test(DependencyModifiers.Use),
-                    lazy       = dep.test(DependencyModifiers.Lazy),
-                    promise    = dep.test(DependencyModifiers.Promise),
-                    child      = dep.test(DependencyModifiers.Child),
-                    dynamic    = dep.test(DependencyModifiers.Dynamic),
+                var use        = dep.test(DependencyModifier.Use),
+                    lazy       = dep.test(DependencyModifier.Lazy),
+                    promise    = dep.test(DependencyModifier.Promise),
+                    child      = dep.test(DependencyModifier.Child),
+                    dynamic    = dep.test(DependencyModifier.Dynamic),
                     dependency = dep.dependency;
                 if (use || dynamic || $isNothing(dependency)) {
                     if (dynamic && $isFunction(dependency)) {
@@ -6764,10 +6772,10 @@ new function () { // closure
                 } else if (dependency === Container) {
                     dependency = containerDep;
                 } else {
-                    var all           = dep.test(DependencyModifiers.Every),
-                        optional      = dep.test(DependencyModifiers.Optional),
-                        invariant     = dep.test(DependencyModifiers.Invariant),
-                        fromContainer = dep.test(DependencyModifiers.Container);
+                    var all           = dep.test(DependencyModifier.Every),
+                        optional      = dep.test(DependencyModifier.Optional),
+                        invariant     = dep.test(DependencyModifier.Invariant),
+                        fromContainer = dep.test(DependencyModifier.Container);
                     if (invariant) {
                         dependency = $eq(dependency);
                     }
