@@ -6493,7 +6493,7 @@ new function () { // closure
      */
     base2.package(this, {
         name:    "miruken",
-        version: "0.0.30",
+        version: "0.0.31",
         exports: "Enum,Variance,Protocol,StrictProtocol,Delegate,Miruken,MetaStep,MetaMacro," +
                  "Initializing,Disposing,DisposingMixin,Invoking,Parenting,Starting,Startup," +
                  "Facet,Interceptor,InterceptorSelector,ProxyBuilder,Modifier,ArrayManager,IndexedList," +
@@ -7290,6 +7290,10 @@ new function () { // closure
         }
     });
 
+    Enum.$meta      = new ClassMeta(Base.$meta, Enum);
+    Enum.extend     = Base.extend
+    Enum.implement  = Base.implement;
+    
     /**
      * Metamacro to proxy protocol methods through a delegate.<br/>
      * See {{#crossLink "miruken.Protocol"}}{{/crossLink}}
@@ -7347,7 +7351,7 @@ new function () { // closure
     });
     Protocol.extend     = Base.extend
     Protocol.implement  = Base.implement;
-    Protocol.$meta      = new ClassMeta(null, Protocol, null, [new $proxyProtocol]);
+    Protocol.$meta      = new ClassMeta(Base.$meta, Protocol, null, [new $proxyProtocol]);
     Protocol.$meta.execute(MetaStep.Subclass, Protocol.$meta, Protocol.prototype);
 
     /**
