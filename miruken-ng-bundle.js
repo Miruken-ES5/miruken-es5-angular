@@ -6493,7 +6493,7 @@ new function () { // closure
      */
     base2.package(this, {
         name:    "miruken",
-        version: "0.0.31",
+        version: "0.0.32",
         exports: "Enum,Variance,Protocol,StrictProtocol,Delegate,Miruken,MetaStep,MetaMacro," +
                  "Initializing,Disposing,DisposingMixin,Invoking,Parenting,Starting,Startup," +
                  "Facet,Interceptor,InterceptorSelector,ProxyBuilder,Modifier,ArrayManager,IndexedList," +
@@ -7908,23 +7908,33 @@ new function () { // closure
      */
     function $using(disposing, action, context) {
         if (disposing && $isFunction(disposing.dispose)) {
-            if ($isFunction(action)) {
+            if (!$isPromise(action)) {
                 var result;
                 try {
-                    result = action.call(context, disposing);
-                    return result;
+                    result = $isFunction(action)
+                           ? action.call(context, disposing)
+                           : action;
+                    if (!$isPromise(result)) {
+                        return result;
+                    }
                 } finally {
                     if ($isPromise(result)) {
                         action = result;
                     } else {
-                        disposing.dispose();
+                        var dresult = disposing.dispose();
+                        if (dresult !== undefined) {
+                            return dresult;
+                        }
                     }
                 }
-            } else if (!$isPromise(action)) {
-                return;
             }
-            action.finally(function () { disposing.dispose(); });
-            return action;
+            return action.then(function (res) {
+                var dres = disposing.dispose();
+                return dres !== undefined ? dres : res;
+            }, function (err) {
+                var dres = disposing.dispose();
+                return dres !== undefined ? dres : Promise.reject(err);
+            });
         }
     }
 
