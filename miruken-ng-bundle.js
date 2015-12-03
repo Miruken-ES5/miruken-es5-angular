@@ -6493,8 +6493,8 @@ new function () { // closure
      */
     base2.package(this, {
         name:    "miruken",
-        version: "0.0.32",
-        exports: "Enum,Variance,Protocol,StrictProtocol,Delegate,Miruken,MetaStep,MetaMacro," +
+        version: "0.0.33",
+        exports: "Enum,Flags,Variance,Protocol,StrictProtocol,Delegate,Miruken,MetaStep,MetaMacro," +
                  "Initializing,Disposing,DisposingMixin,Invoking,Parenting,Starting,Startup," +
                  "Facet,Interceptor,InterceptorSelector,ProxyBuilder,Modifier,ArrayManager,IndexedList," +
                  "$isProtocol,$isClass,$classOf,$ancestorOf,$isString,$isFunction,$isObject,$isArray," +
@@ -6583,9 +6583,7 @@ new function () { // closure
      */
     var Enum = Base.extend({
         constructor: function (value, name) {
-            if (!this.constructor.__defining) {
-                throw new TypeError("Enums cannot be instantiated.");
-            }
+            this.constructing(value, name);
             Object.defineProperties(this, {
                 "value": {
                     value:        value,
@@ -6598,32 +6596,85 @@ new function () { // closure
                     configurable: false
                 }
             });
+        },
+        constructing: function (value, name) {
+            if (!this.constructor.__defining) {
+                throw new TypeError("Enums cannot be instantiated.");
+            }            
         }
     }, {
         coerce: function _(choices) {
-            var en        = this.extend();
+            if (this !== Enum && this !== Flags) {
+                return;
+            }
+            var en = this.extend(null, {
+                coerce: function _(value) {
+                    return this.fromValue(value);
+                }
+            });
             en.__defining = true;
             en.names      = Object.freeze(Object.keys(choices));
             for (var choice in choices) {
                 en[choice] = new en(choices[choice], choice);
             }
-            en.fromValue = _valueToEnum.bind(en);
+            en.fromValue = this.fromValue;
             delete en.__defining;
             return Object.freeze(en);
+        },
+        fromValue: function (value) {
+            value = +value;
+            var names = this.names;
+            for (var i = 0; i < names.length; ++i) {
+                var e = this[names[i]];
+                if (e.value === value) {
+                    return e;
+                }
+            }                    
         }
     });
     Enum.prototype.valueOf = function () { return this.value; }
 
-    function _valueToEnum(value) {
-        var names = this.names;
-        for (var i = 0; i < names.length; ++i) {
-            var e = this[names[i]];
-            if (e.value === +value) {
-                return e;
+    /**
+     * Defines a flags enumeration.
+     * <pre>
+     *    var DayOfWeek = Flags({
+     *        Monday:     1 << 0,
+     *        Tuesday:    1 << 1,
+     *        Wednesday:  1 << 2,
+     *        Thursday:   1 << 3,
+     *        Friday:     1 << 4,
+     *        Saturday:   1 << 5,
+     *        Sunday:     1 << 6
+     *    })
+     * </pre>
+     * @class Enum
+     * @constructor
+     * @param  {Any} value     -  flag value
+     * @param  {string} value  -  flag name
+     */    
+    var Flags = Enum.extend({
+        hasFlag: function (flag) {
+            flag = +flag;
+            return (this.value & flag) === flag;
+        },
+        constructing: function (value, name) {}
+    }, {
+        fromValue: function (value) {
+            value = +value;
+            var name, names = this.names;
+            for (var i = 0; i < names.length; ++i) {
+                var flag = this[names[i]];
+                if (flag.value === value) {
+                    return flag;
+                }
+                if ((value & flag.value) === flag.value) {
+                    name = name ? (name + "," + flag.name) : flag.name;
+                }
             }
-        }        
-    }
-    
+            return new this(value, name);
+        }
+    });
+                            
     /**
      * Variance enum
      * @class Variance
