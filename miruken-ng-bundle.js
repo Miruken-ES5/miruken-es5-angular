@@ -160,12 +160,11 @@ new function () { // closure
                             }
                         }
 
-                        if (_controller.context !== partialContext) {
-                            _controller = pcopy(_controller);
-                            _controller.context = partialContext;
-                        }
-                        
                         if (_controller) {
+                            if (_controller.context !== partialContext) {
+                                _controller = pcopy(_controller);
+                                _controller.context = partialContext;
+                            }
                             _partialScope[controllerAs] = _controller;
                         }
                         
@@ -491,7 +490,7 @@ new function () { // closure
                 directive.setKey(member);
                 container.addComponent(directive);
                 var deps = _ngDependencies(directive);
-                deps.unshift('$rootScope');
+                deps.unshift("$rootScope", "$injector");
                 deps.push(Shim(member, deps.slice()));
                 if (/Directive$/.test(name)) {
                     name = name.substring(0, name.length - 9);
@@ -504,7 +503,7 @@ new function () { // closure
                 controller.setLifestyle(new ContextualLifestyle);
                 container.addComponent(controller);
                 var deps = _ngDependencies(controller);
-                deps.unshift('$scope', '$injector');
+                deps.unshift("$scope", "$injector");
                 deps.push(Shim(member, deps.slice()));
                 module.controller(name, deps);
             } else if (memberProto instanceof Filter) {
@@ -512,7 +511,7 @@ new function () { // closure
                 filter.setKey(member);
                 container.addComponent(filter);
                 var deps = _ngDependencies(filter);
-                deps.unshift('$rootScope');
+                deps.unshift("$rootScope", "$injector");
                 var shim = Shim(member, deps.slice());
                 deps.push(function () {
                     var instance = shim.apply(null, arguments);
@@ -6493,7 +6492,7 @@ new function () { // closure
      */
     base2.package(this, {
         name:    "miruken",
-        version: "0.0.33",
+        version: "0.0.34",
         exports: "Enum,Flags,Variance,Protocol,StrictProtocol,Delegate,Miruken,MetaStep,MetaMacro," +
                  "Initializing,Disposing,DisposingMixin,Invoking,Parenting,Starting,Startup," +
                  "Facet,Interceptor,InterceptorSelector,ProxyBuilder,Modifier,ArrayManager,IndexedList," +
