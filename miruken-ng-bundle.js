@@ -28,7 +28,7 @@ new function () { // closure
         name:    "ng",
         imports: "miruken,miruken.callback,miruken.context,miruken.validate,miruken.ioc,miruken.mvc",
         exports: "Runner,Directive,Filter,RegionDirective,DynamicControllerDirective," +
-                 "PartialRegion,UseModelValidation,DigitsOnly,InhibitFocus," +
+                 "PartialRegion,UseModelValidation,DigitsOnly,InhibitFocus,TrustFilter," +
                  "$appContext,$envContext,$rootContext"
     });
 
@@ -162,7 +162,7 @@ new function () { // closure
 
                         if (_controller) {
                             if (_controller.context !== partialContext) {
-                                _controller = pcopy(_controller);
+                                _controller         = pcopy(_controller);
                                 _controller.context = partialContext;
                             }
                             _partialScope[controllerAs] = _controller;
@@ -335,6 +335,25 @@ new function () { // closure
             });
         }
     });
+
+    /**
+     * Angular filter to trust content.<br/>
+     * See [Angular String Contextual Escaping](https://docs.angularjs.org/api/ng/service/$sce)
+     * 
+     * @class TrustFilter
+     * @constructor
+     * @extends miruken.ng.Filter     
+     */        
+    var TrustFilter = Filter.extend({
+        $inject: ["$sce"],
+        constructor: function ($sce) {
+            this.extend({
+                filter: function (input) {
+                    return $sce.trustAsHtml(input);
+                }
+            });
+        }
+    });
     
     Package.implement({
         init: function () {
@@ -425,7 +444,7 @@ new function () { // closure
                 var scope = composer.resolve('$scope');
                 if (scope) {
                     if (delay) {
-                        setTimeout(scope.$applyAsync.bind(scope), 20);
+                        setTimeout(scope.$applyAsync.bind(scope), delay);
                     } else {
                         scope.$applyAsync();
                     }
@@ -6492,7 +6511,7 @@ new function () { // closure
      */
     base2.package(this, {
         name:    "miruken",
-        version: "0.0.34",
+        version: "0.0.35",
         exports: "Enum,Flags,Variance,Protocol,StrictProtocol,Delegate,Miruken,MetaStep,MetaMacro," +
                  "Initializing,Disposing,DisposingMixin,Invoking,Parenting,Starting,Startup," +
                  "Facet,Interceptor,InterceptorSelector,ProxyBuilder,Modifier,ArrayManager,IndexedList," +
