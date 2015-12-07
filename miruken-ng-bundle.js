@@ -180,7 +180,8 @@ new function () { // closure
                             
                             if (isModal) {
                                 var provider = modalPolicy.style || ModalProviding;
-                                return $q.when(provider(composer).showModal(container, content, modalPolicy, partialContext));
+                                return $q.when(provider(composer)
+                                    .showModal(container, content, modalPolicy, partialContext));
                             }
                             
                             partialContext.onEnding(function (context) {
@@ -6628,11 +6629,11 @@ new function () { // closure
             }            
         }
     }, {
-        coerce: function _(choices) {
+        coerce: function _(choices, behavior) {
             if (this !== Enum && this !== Flags) {
                 return;
             }
-            var en = this.extend(null, {
+            var en = this.extend(behavior, {
                 coerce: function _(value) {
                     return this.fromValue(value);
                 }
