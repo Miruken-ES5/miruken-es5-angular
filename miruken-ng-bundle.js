@@ -391,7 +391,7 @@ new function () { // closure
             if (module) {
                 Object.defineProperty(this, "ngModule", { value: module });
             }
-            if (parent === base2) {
+            if ((parent === base2) && !(this.name in global)) {
                 global[this.name] = this;
             }
         },
@@ -6519,7 +6519,7 @@ new function () { // closure
      */
     base2.package(this, {
         name:    "miruken",
-        version: "0.0.37",
+        version: "0.0.39",
         exports: "Enum,Flags,Variance,Protocol,StrictProtocol,Delegate,Miruken,MetaStep,MetaMacro," +
                  "Initializing,Disposing,DisposingMixin,Invoking,Parenting,Starting,Startup," +
                  "Facet,Interceptor,InterceptorSelector,ProxyBuilder,Modifier,ArrayManager,IndexedList," +
