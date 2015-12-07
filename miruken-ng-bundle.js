@@ -130,16 +130,16 @@ new function () { // closure
                     }
                     
                     if (template) {
-                        return compileTemplate(template);
+                        return replaceContent(template);
                     } else if (templateUrl) {
                         return $templates(templateUrl, true).then(function (template) {
-                            return compileTemplate(template);
+                            return replaceContent(template);
                         });
                     } else {
                         return $q.reject(new Error("A template or templateUrl must be specified"));
                     }
                     
-                    function compileTemplate(template) {
+                    function replaceContent(template) {
                         var oldScope       = _partialScope,
                             modalPolicy    = new ModalPolicy,
                             isModal        = composer.handle(modalPolicy, true),
@@ -162,41 +162,41 @@ new function () { // closure
                             if ($isPromise(_controller)) {
                                 return _controller.then(function (ctrl) {
                                     _controller = ctrl;
-                                    return replaceContent(template);
+                                    return compile();
                                 });
                             }
                         }
 
-                        return replaceContent(template);
-                    }
-
-                    function replaceContent(template) {
-                        if (_controller) {
-                            if (_controller.context !== partialContext) {
-                                _controller         = pcopy(_controller);
-                                _controller.context = partialContext;
+                        function compile() {
+                            if (_controller) {
+                                if (_controller.context !== partialContext) {
+                                    _controller         = pcopy(_controller);
+                                    _controller.context = partialContext;
+                                }
+                                _partialScope[controllerAs] = _controller;
                             }
-                            _partialScope[controllerAs] = _controller;
+                            
+                            var content = $compile(template)(_partialScope);
+                            
+                            if (isModal) {
+                                var provider = modalPolicy.style || ModalProviding;
+                                return $q.when(provider(composer).showModal(container, content, modalPolicy, partialContext));
+                            }
+                            
+                            partialContext.onEnding(function (context) {
+                                if (context === _partialScope.context) {
+                                    _controller = null;
+                                }
+                            });
+                            
+                            return animateContent(container, content, partialContext, $q).then(function () {
+                                if (oldScope) {
+                                    oldScope.$destroy();
+                                }    
+                            });                        
                         }
                         
-                        var content = $compile(template)(_partialScope);
-
-                        if (isModal) {
-                            var provider = modalPolicy.style || ModalProviding;
-                            return $q.when(provider(composer).showModal(container, content, modalPolicy, partialContext));
-                        }
-                        
-                        partialContext.onEnding(function (context) {
-                            if (context === _partialScope.context) {
-                                _controller = null;
-                            }
-                        });
-                        
-                        return animateContent(container, content, partialContext, $q).then(function () {
-                            if (oldScope) {
-                                oldScope.$destroy();
-                            }    
-                        });                        
+                        return compile();
                     }
                     
                     function animateContent(container, content, partialContext, $q) {
@@ -6518,7 +6518,7 @@ new function () { // closure
      */
     base2.package(this, {
         name:    "miruken",
-        version: "0.0.36",
+        version: "0.0.37",
         exports: "Enum,Flags,Variance,Protocol,StrictProtocol,Delegate,Miruken,MetaStep,MetaMacro," +
                  "Initializing,Disposing,DisposingMixin,Invoking,Parenting,Starting,Startup," +
                  "Facet,Interceptor,InterceptorSelector,ProxyBuilder,Modifier,ArrayManager,IndexedList," +
