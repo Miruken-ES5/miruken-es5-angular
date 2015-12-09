@@ -34,11 +34,14 @@ new function () { // closure
 
     eval(this.imports);
 
-    var $appContext  = new Context,
-        $envContext  = $appContext.newChild(),
-        $rootContext = $envContext.newChild(),
-        appContainer = new IoContainer;
+    var $appContext   = new Context,
+        $envContext   = $appContext.newChild(),
+        $rootContext  = $envContext.newChild(),
+        appContainer  = new IoContainer,
+        mirukenModule = angular.module("miruken.ng", []);
 
+    Object.defineProperty(this.package, "ngModule", { value: mirukenModule });
+    
     $appContext.addHandlers(appContainer, 
                             new miruken.validate.ValidationCallbackHandler,
                             new miruken.validate.ValidateJsCallbackHandler,
@@ -380,11 +383,14 @@ new function () { // closure
                 if (exists) {
                     throw new Error(format("The Angular module '%1' already exists.", name));
                 }
+                if (module.indexOf(mirukenModule.name) < 0) {
+                    module = module.slice();
+                    module.push(mirukenModule.name);
+                }
                 module = angular.module(name, module);
                 module.constant("$appContext",  $appContext);
                 module.constant("$envContext",  $envContext);                
                 module.constant("$rootContext", $rootContext);
-                _registerContents(ng, module, ng.exports.split(","));
             } else if (parent) {
                 module = parent.ngModule;
             }
@@ -9469,8 +9475,8 @@ new function () { // closure
                         if (k.toLowerCase() === lkey) {
                             descriptor = descriptors && descriptors[k];
                             mapper     = descriptor  && descriptor.map;                            
-                            this[k] = Model.map(value, mapper, options);
-                            found = true;
+                            this[k]    = Model.map(value, mapper, options);
+                            found      = true;
                             break;
                         }
                     }
