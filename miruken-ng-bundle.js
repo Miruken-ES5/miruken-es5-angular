@@ -40,6 +40,9 @@ new function () { // closure
         appContainer  = new IoContainer,
         mirukenModule = angular.module("miruken.ng", []);
 
+    mirukenModule.constant("$appContext",  $appContext);
+    mirukenModule.constant("$envContext",  $envContext);                
+    mirukenModule.constant("$rootContext", $rootContext);
     Object.defineProperty(this.package, "ngModule", { value: mirukenModule });
     
     $appContext.addHandlers(appContainer, 
@@ -388,9 +391,6 @@ new function () { // closure
                     module.push(mirukenModule.name);
                 }
                 module = angular.module(name, module);
-                module.constant("$appContext",  $appContext);
-                module.constant("$envContext",  $envContext);                
-                module.constant("$rootContext", $rootContext);
             } else if (parent) {
                 module = parent.ngModule;
             }
@@ -6525,7 +6525,7 @@ new function () { // closure
      */
     base2.package(this, {
         name:    "miruken",
-        version: "0.0.40",
+        version: "0.0.41",
         exports: "Enum,Flags,Variance,Protocol,StrictProtocol,Delegate,Miruken,MetaStep,MetaMacro," +
                  "Initializing,Disposing,DisposingMixin,Invoking,Parenting,Starting,Startup," +
                  "Facet,Interceptor,InterceptorSelector,ProxyBuilder,Modifier,ArrayManager,IndexedList," +
