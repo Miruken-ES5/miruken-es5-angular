@@ -162,7 +162,9 @@ new function () { // closure
                                     controllerAs = parts[parts.length - 1];
                                 }
                             } else {
-                                _controller = partialContext.resolve(controller);                                
+                                _controller = composer.decorate({
+                                    $provide: ["$scope", _partialScope, Context, partialContext] 
+                                }).resolve(controller);
                             }
 
                             if ($isPromise(_controller)) {
@@ -6525,7 +6527,7 @@ new function () { // closure
      */
     base2.package(this, {
         name:    "miruken",
-        version: "0.0.41",
+        version: "0.0.42",
         exports: "Enum,Flags,Variance,Protocol,StrictProtocol,Delegate,Miruken,MetaStep,MetaMacro," +
                  "Initializing,Disposing,DisposingMixin,Invoking,Parenting,Starting,Startup," +
                  "Facet,Interceptor,InterceptorSelector,ProxyBuilder,Modifier,ArrayManager,IndexedList," +
