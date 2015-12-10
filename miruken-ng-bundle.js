@@ -162,9 +162,9 @@ new function () { // closure
                                     controllerAs = parts[parts.length - 1];
                                 }
                             } else {
-                                _controller = composer.decorate({
-                                    $provide: ["$scope", _partialScope, Context, partialContext] 
-                                }).resolve(controller);
+                                _controller = composer
+                                    .$$provide(["$scope", _partialScope, Context, partialContext])
+                                    .resolve(controller);
                             }
 
                             if ($isPromise(_controller)) {
@@ -3171,6 +3171,26 @@ new function () { // closure
                 }
                 return _aspectProceed(callback, composer, proceed, after);
             });
+        },
+        /**
+         * Decorates the handler to handle definitions.
+         * @method $handle
+         * @param   {Array}  [definitions]  -  handler overrides
+         * @returns {miruken.callback.CallbackHandler}  decorated callback handler.
+         * @for miruken.callback.CallbackHandler
+         */
+        $$handle: function (definitions) {
+            return this.decorate({$handle: definitions});
+        },
+        /**
+         * Decorates the handler to provide definitions.
+         * @method $handle
+         * @param   {Array}  [definitions]  -  provider overrides
+         * @returns {miruken.callback.CallbackHandler}  decorated callback handler.
+         * @for miruken.callback.CallbackHandler
+         */
+        $$provide: function (definitions) {
+            return this.decorate({$provide: definitions});
         },
         /**
          * Decorates the handler to conditionally handle callbacks.
@@ -6527,7 +6547,7 @@ new function () { // closure
      */
     base2.package(this, {
         name:    "miruken",
-        version: "0.0.42",
+        version: "0.0.43",
         exports: "Enum,Flags,Variance,Protocol,StrictProtocol,Delegate,Miruken,MetaStep,MetaMacro," +
                  "Initializing,Disposing,DisposingMixin,Invoking,Parenting,Starting,Startup," +
                  "Facet,Interceptor,InterceptorSelector,ProxyBuilder,Modifier,ArrayManager,IndexedList," +
