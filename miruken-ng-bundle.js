@@ -198,10 +198,11 @@ new function () { // closure
                                 }
                             });
                             
-                            return animateContent(container, content, partialContext, $q).then(function () {
+                            return animateContent(container, content, partialContext, $q).then(function (ctx) {
                                 if (oldScope) {
                                     oldScope.$destroy();
-                                }    
+                                }
+                                return ctx;
                             });                        
                         }
                         
@@ -6547,7 +6548,7 @@ new function () { // closure
      */
     base2.package(this, {
         name:    "miruken",
-        version: "0.0.43",
+        version: "0.0.44",
         exports: "Enum,Flags,Variance,Protocol,StrictProtocol,Delegate,Miruken,MetaStep,MetaMacro," +
                  "Initializing,Disposing,DisposingMixin,Invoking,Parenting,Starting,Startup," +
                  "Facet,Interceptor,InterceptorSelector,ProxyBuilder,Modifier,ArrayManager,IndexedList," +
@@ -6667,10 +6668,13 @@ new function () { // closure
                 }
             });
             en.__defining = true;
+            var items     = [];
             en.names      = Object.freeze(Object.keys(choices));
             for (var choice in choices) {
-                en[choice] = new en(choices[choice], choice);
+                var item = en[choice] = new en(choices[choice], choice);
+                items.push(item);
             }
+            en.items     = Object.freeze(items);
             en.fromValue = this.fromValue;
             delete en.__defining;
             return Object.freeze(en);
