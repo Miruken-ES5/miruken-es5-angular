@@ -2933,9 +2933,16 @@ new function () { // closure
             });
         },
         _dispose: function () {
-            return Array2.map(this.getHandlers(), function (handler) {
-                return Batching(handler).complete();
-            });
+            var promise = false,
+                results = Array2.reduce(this.getHandlers(), function (agg, handler) {
+                    var result = Batching(handler).complete();
+                    if (result) {
+                        promise = promise || $isPromise(result);
+                        agg.push(result);
+                        return agg;
+                    }
+                }, []);
+            return promise ? Promise.all(results) : results;
         }
     });
     
@@ -6613,7 +6620,7 @@ new function () { // closure
      */
     base2.package(this, {
         name:    "miruken",
-        version: "0.0.45",
+        version: "0.0.46",
         exports: "Enum,Flags,Variance,Protocol,StrictProtocol,Delegate,Miruken,MetaStep,MetaMacro," +
                  "Initializing,Disposing,DisposingMixin,Invoking,Parenting,Starting,Startup," +
                  "Facet,Interceptor,InterceptorSelector,ProxyBuilder,Modifier,ArrayManager,IndexedList," +
