@@ -2907,9 +2907,10 @@ new function () { // closure
         /**
          * Completes the batching operation.
          * @method complete
+         * @param   {miruken.callback.CallbackHandler}  composer  - composition handler
          * @returns {Any} the batching result.
          */                
-        complete: function () {}
+        complete: function (composer) {}
     });
     
     /**
@@ -2920,7 +2921,7 @@ new function () { // closure
      * @param   {miruken.Protocol}  [...protocols]  -  protocols to batch
      * @extends miruken.callback.CompositeCallbackHandler
      */    
-    var Batcher = CompositeCallbackHandler.extend(Disposing, DisposingMixin, {
+    var Batcher = CompositeCallbackHandler.extend({
         constructor: function (protocols) {
             this.base();
             if (protocols && !$isArray(protocols)) {
@@ -2932,14 +2933,14 @@ new function () { // closure
                 }
             });
         },
-        _dispose: function () {
+        complete: function (composer) {
             var promise = false,
-                results = Array2.reduce(this.getHandlers(), function (agg, handler) {
-                    var result = Batching(handler).complete();
+                results = Array2.reduce(this.getHandlers(), function (res, handler) {
+                    var result = Batching(handler).complete(composer);
                     if (result) {
                         promise = promise || $isPromise(result);
-                        agg.push(result);
-                        return agg;
+                        res.push(result);
+                        return res;
                     }
                 }, []);
             return promise ? Promise.all(results) : results;
@@ -3286,7 +3287,8 @@ new function () { // closure
          * @for miruken.callback.CallbackHandler
          */
         batch: function(protocols) {
-            var batcher = new Batcher(protocols);
+            var composer = this,
+                batcher  = new Batcher(protocols);
             return this.decorate({
                 $provide: [Batcher, function () {
                     return batcher;
@@ -3298,8 +3300,8 @@ new function () { // closure
                 },
                 dispose: function () {
                     var b = batcher;
-                    batcher = null;                    
-                    return b.dispose();
+                    batcher = null;                   
+                    return b.complete(composer);
                 }
             });            
         }
@@ -6620,7 +6622,7 @@ new function () { // closure
      */
     base2.package(this, {
         name:    "miruken",
-        version: "0.0.46",
+        version: "0.0.47",
         exports: "Enum,Flags,Variance,Protocol,StrictProtocol,Delegate,Miruken,MetaStep,MetaMacro," +
                  "Initializing,Disposing,DisposingMixin,Invoking,Parenting,Starting,Startup," +
                  "Facet,Interceptor,InterceptorSelector,ProxyBuilder,Modifier,ArrayManager,IndexedList," +
