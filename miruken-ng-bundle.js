@@ -3295,8 +3295,7 @@ new function () { // closure
                     return batcher;
                 }],
                 handleCallback: function (callback, greedy, composer) {
-                    return (batcher && !greedy
-                        &&  batcher.handleCallback(callback, false, composer))
+                    return (batcher && batcher.handleCallback(callback, false, composer))
                         || this.base(callback, greedy, composer);
                 },
                 dispose: function () {
@@ -6629,7 +6628,7 @@ new function () { // closure
      */
     base2.package(this, {
         name:    "miruken",
-        version: "0.0.47",
+        version: "0.0.49",
         exports: "Enum,Flags,Variance,Protocol,StrictProtocol,Delegate,Miruken,MetaStep,MetaMacro," +
                  "Initializing,Disposing,DisposingMixin,Invoking,Parenting,Starting,Startup," +
                  "Facet,Interceptor,InterceptorSelector,ProxyBuilder,Modifier,ArrayManager,IndexedList," +
