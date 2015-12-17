@@ -6628,7 +6628,7 @@ new function () { // closure
      */
     base2.package(this, {
         name:    "miruken",
-        version: "0.0.49",
+        version: "0.0.50",
         exports: "Enum,Flags,Variance,Protocol,StrictProtocol,Delegate,Miruken,MetaStep,MetaMacro," +
                  "Initializing,Disposing,DisposingMixin,Invoking,Parenting,Starting,Startup," +
                  "Facet,Interceptor,InterceptorSelector,ProxyBuilder,Modifier,ArrayManager,IndexedList," +
@@ -9560,7 +9560,7 @@ new function () { // closure
          * @method fromData
          * @param   {Object}  data     -  json structured data
          * @param   {Object}  options  -  mapping options
-         */            
+         */
         fromData: function (data, options) {
             if ($isNothing(data)) {
                 return;
@@ -9957,8 +9957,7 @@ new function () { // closure
      * @constructor
      * @extends Base
      */    
-    var ValidationResult = Base.extend(
-        $inferProperties, {
+    var ValidationResult = Base.extend({
         constructor: function () {
             var _errors, _summary;
             this.extend({
