@@ -6628,7 +6628,7 @@ new function () { // closure
      */
     base2.package(this, {
         name:    "miruken",
-        version: "0.0.51",
+        version: "0.0.52",
         exports: "Enum,Flags,Variance,Protocol,StrictProtocol,Delegate,Miruken,MetaStep,MetaMacro," +
                  "Initializing,Disposing,DisposingMixin,Invoking,Parenting,Starting,Startup," +
                  "Facet,Interceptor,InterceptorSelector,ProxyBuilder,Modifier,ArrayManager,IndexedList," +
@@ -9583,6 +9583,9 @@ new function () { // closure
                     continue;  // ignore or already rooted
                 }
                 var value = data[key];
+                if (value === undefined) {
+                    continue;
+                }
                 if (key in this) {
                     this[key] = Model.map(value, mapper, options);
                 } else {
@@ -9619,8 +9622,11 @@ new function () { // closure
                 var all = $isNothing(spec);
                 for (var key in descriptors) {
                     if (all || (key in spec)) {
-                        var keyValue   = this[key],
-                            descriptor = descriptors[key],
+                        var keyValue   = this[key];
+                        if (keyValue === undefined) {
+                            continue;
+                        }
+                        var descriptor = descriptors[key],
                             keySpec    = all ? spec : spec[key];
                         if (!(all || keySpec) || descriptor.ignore) {
                             continue;
