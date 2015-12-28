@@ -2088,9 +2088,9 @@ new function () { // closure
         name:    "callback",
         imports: "miruken",
         exports: "CallbackHandler,CascadeCallbackHandler,CompositeCallbackHandler," +
-                 "InvocationOptions,Resolving,Batching,Batcher,Resolution,Composition," +
-                 "HandleMethod,ResolveMethod,RejectedError,getEffectivePromise,$handle," +
-                 "$callbacks,$define,$provide,$lookup,$NOT_HANDLED"
+                 "InvocationOptions,Batching,Batcher,Resolution,Composition,HandleMethod," +
+                 "ResolveMethod,RejectedError,getEffectivePromise,$handle,$callbacks," +
+                 "$define,$provide,$lookup,$NOT_HANDLED"
     });
 
     eval(this.imports);
@@ -2952,13 +2952,6 @@ new function () { // closure
             }
         }
     });
-
-    /**
-     * Protocol marking {{#crossLink "miruken.callback.InvocationOptions/Resolve:property"}}{{/crossLink}} semantics.
-     * @class Resolving
-     * @extends miruken.Protocol
-     */
-    var Resolving = Protocol.extend();
 
     /**
      * Protocol to participate in batched operations.
@@ -6690,9 +6683,9 @@ new function () { // closure
      */
     base2.package(this, {
         name:    "miruken",
-        version: "0.0.55",
+        version: "0.0.56",
         exports: "Enum,Flags,Variance,Protocol,StrictProtocol,Delegate,Miruken,MetaStep,MetaMacro," +
-                 "Initializing,Disposing,DisposingMixin,Invoking,Parenting,Starting,Startup," +
+                 "Initializing,Disposing,DisposingMixin,Resolving,Invoking,Parenting,Starting,Startup," +
                  "Facet,Interceptor,InterceptorSelector,ProxyBuilder,Modifier,ArrayManager,IndexedList," +
                  "$isProtocol,$isClass,$classOf,$ancestorOf,$isString,$isFunction,$isObject,$isArray," +
                  "$isPromise,$isNothing,$isSomething,$using,$lift,$equals,$decorator,$decorate,$decorated," +
@@ -7676,7 +7669,7 @@ new function () { // closure
      *                        this.lastName = parts[1];
      *                    }
      *                }
-     *            },
+     *            }
      *        }
      *    })
      * </pre>
@@ -7710,26 +7703,14 @@ new function () { // closure
                     typeOf(property.length) == "number" || typeOf(property) !== 'object') {
                     property = { value: property };
                 }
-                if (target instanceof Protocol) {
-                    if (property.get || !property.set) {
-                        spec.get = function (get) {
-                            return function () {
-                                return this.__get(get);
-                            };
-                        }(name);
-                    }
-                    if (property.set || !property.get) {
-                        spec.set = function (set) {
-                            return function (value) {
-                                return this.__set(set, value);
-                            };
-                        }(name);
-                    }
-                } else if (name in definition) {
+                if (name in definition) {
                     source = null;  // don't replace standard property
                 } else if (property.get || property.set) {
                     spec.get = property.get;
                     spec.set = property.set;
+                } else if (target instanceof Protocol) {
+                    // $proxyProtocol will do the real work
+                    spec.get = spec.set = Undefined;
                 } else if ("auto" in property) {
                     var field = property.auto;
                     if (!(field && $isString(field))) {
@@ -8044,7 +8025,7 @@ new function () { // closure
          */
         initialize: function () {}
     });
-
+    
     /**
      * Protocol for targets that manage disposal lifecycle.
      * @class Disposing
@@ -8073,6 +8054,13 @@ new function () { // closure
             }
         }
     });
+
+    /**
+     * Protocol marking resolve semantics.
+     * @class Resolving
+     * @extends miruken.Protocol
+     */
+    var Resolving = Protocol.extend();
 
     /**
      * Protocol for targets that can execute functions.
