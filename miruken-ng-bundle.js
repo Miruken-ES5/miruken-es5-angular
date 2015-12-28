@@ -1348,7 +1348,7 @@ function _override(object, name, desc) {
         } else {
           this.base = aset;
         }
-        var returnValue = get.apply(this, arguments);
+        var returnValue = set.apply(this, arguments);
         this.base = previous;
         return returnValue;
       };
@@ -6690,7 +6690,7 @@ new function () { // closure
      */
     base2.package(this, {
         name:    "miruken",
-        version: "0.0.54",
+        version: "0.0.55",
         exports: "Enum,Flags,Variance,Protocol,StrictProtocol,Delegate,Miruken,MetaStep,MetaMacro," +
                  "Initializing,Disposing,DisposingMixin,Invoking,Parenting,Starting,Startup," +
                  "Facet,Interceptor,InterceptorSelector,ProxyBuilder,Modifier,ArrayManager,IndexedList," +
@@ -7183,11 +7183,15 @@ new function () { // closure
                  * @param  {Object}   [descriptor]  -  property descriptor
                  */
                 defineProperty: function(target, name, spec, descriptor) {
-                    descriptor = copy(descriptor);
+                    if (descriptor) {
+                        descriptor = copy(descriptor);
+                    }
                     if (target) {
                         Object.defineProperty(target, name, spec);
                     }
-                    this.addDescriptor(name, descriptor);
+                    if (descriptor) {
+                        this.addDescriptor(name, descriptor);
+                    }
                 },
                 /**
                  * Gets the descriptor for one or more properties.
@@ -7723,18 +7727,16 @@ new function () { // closure
                     }
                 } else if (name in definition) {
                     source = null;  // don't replace standard property
-                } else if (property.get || property.set || ("auto" in property)) {
-                    if (property.get || property.set) {
-                        spec.get = property.get;
-                        spec.set = property.set;
-                    } else {
-                        var field = property.auto;
-                        if (!(field && $isString(field))) {
-                            field = "_" + name;
-                        }
-                        spec.get = function () { return this[field]; };
-                        spec.set = function (value) { this[field] = value; };
+                } else if (property.get || property.set) {
+                    spec.get = property.get;
+                    spec.set = property.set;
+                } else if ("auto" in property) {
+                    var field = property.auto;
+                    if (!(field && $isString(field))) {
+                        field = "_" + name;
                     }
+                    spec.get = function () { return this[field]; };
+                    spec.set = function (value) { this[field] = value; };
                 } else {
                     spec.writable = true;
                     spec.value    = property.value;
@@ -7775,13 +7777,6 @@ new function () { // closure
         }
     });
 
-    function _cleanDescriptor(descriptor) {
-        delete descriptor.writable;
-        delete descriptor.value;
-        delete descriptor.get;
-        delete descriptor.set;
-    }
-
     /**
      * Metamacro to derive class properties from existng methods.
      * <p>Currently getFoo, isFoo and setFoo conventions are recognized.</p>
@@ -7797,31 +7792,50 @@ new function () { // closure
      * @extends miruken.MetaMacro
      */
     var $inferProperties = MetaMacro.extend({
-        execute: function _(step, metadata, target, definition) {
+        inflate: function _(step, metadata, definition, expand) {
+            var expanded;
             for (var key in definition) {
-                var value = definition[key];
-                if (!$isFunction(value)) {
-                    continue;
-                }
-                var spec = _.spec || (_.spec = {
-                    configurable: true,
-                    enumerable:   true
-                });
-                if (_inferProperty(key, value, definition, spec)) {
-                    var name = spec.name;
-                    if (name && !(name in target)) {
-                        spec.get = _makeGetter(spec.get);
-                        spec.set = _makeSetter(spec.set);                        
-                        this.defineProperty(metadata, target, name, spec);
+                var member = _getPropertyDescriptor(definition, key);
+                if ($isFunction(member.value)) {
+                    var spec = _.spec || (_.spec = {
+                        configurable: true,
+                        enumerable:   true
+                    });
+                    var name = this.inferProperty(key, member.value, definition, spec);
+                    if (name) {
+                        expanded = expanded || expand();
+                        Object.defineProperty(expanded, name, spec);
+                        _cleanDescriptor(spec);                        
                     }
-                    delete spec.name;
-                    delete spec.get;
-                    delete spec.set;
+                }
+            }            
+        },
+        inferProperty: function (key, method, definition, spec) {
+            for (var i = 0; i < GETTER_CONVENTIONS.length; ++i) {
+                var prefix = GETTER_CONVENTIONS[i];
+                if (key.lastIndexOf(prefix, 0) == 0) {
+                    if (method.length === 0) {  // no arguments
+                        spec.get   = method;                        
+                        var name   = key.substring(prefix.length),
+                            setter = definition['set' + name];
+                        if ($isFunction(setter)) {
+                            spec.set = setter;
+                        }
+                        return name.charAt(0).toLowerCase() + name.slice(1);
+                    }
                 }
             }
-        },
-        defineProperty: function(metadata, target, name, spec) {
-            metadata.defineProperty(target, name, spec);
+            if (key.lastIndexOf('set', 0) == 0) {
+                if (method.length === 1) {  // 1 argument
+                    spec.set   = method;                    
+                    var name   = key.substring(3),
+                        getter = definition['get' + name];
+                    if ($isFunction(getter)) {
+                        spec.get = getter;
+                    }
+                    return name.charAt(0).toLowerCase() + name.slice(1);
+                }
+            }
         },
         /**
          * Determines if the macro should be inherited
@@ -7837,49 +7851,13 @@ new function () { // closure
         isActive: True
     });
 
-    function _inferProperty(key, value, definition, spec) {
-        for (var i = 0; i < GETTER_CONVENTIONS.length; ++i) {
-            var prefix = GETTER_CONVENTIONS[i];
-            if (key.lastIndexOf(prefix, 0) == 0) {
-                if (value.length === 0) {  // no arguments
-                    var name  = key.substring(prefix.length);
-                    spec.get  = key;
-                    spec.set  = 'set' + name;
-                    spec.name = name.charAt(0).toLowerCase() + name.slice(1);
-                    return true;
-                }
-            }
-        }
-        if (key.lastIndexOf('set', 0) == 0) {
-            if (value.length === 1) {  // 1 argument
-                var name  = key.substring(3);
-                spec.set  = key;
-                spec.get  = 'get' + name;
-                spec.name = name.charAt(0).toLowerCase() + name.slice(1);
-                return true;
-            }
-        }
+    function _cleanDescriptor(descriptor) {
+        delete descriptor.writable;
+        delete descriptor.value;
+        delete descriptor.get;
+        delete descriptor.set;
     }
     
-    function _makeGetter(getMethodName) {
-        return function () {
-            var getter = this[getMethodName];
-            if ($isFunction(getter)) {
-                return getter.call(this);
-            }
-        };   
-    }
-
-    function _makeSetter(setMethodName) {
-        return function (value) {
-            var setter = this[setMethodName];
-            if ($isFunction(setter)) {
-                setter.call(this, value);
-                return value;
-            }
-        };
-    }
-
     /**
      * Metamacro to inherit static members in subclasses.
      * <pre>
