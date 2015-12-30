@@ -3260,6 +3260,8 @@ new function () { // closure
                         });
                         if (isMethod) {
                             callback.returnValue = accept;
+                        } else if (callback instanceof Resolution) {
+                            callback.resolve(accept);
                         } else if (callback instanceof Deferred) {
                             callback.track(accept);
                         }
@@ -3888,10 +3890,13 @@ new function () { // closure
                         if (handled && !greedy) {
                             return handled;
                         }
-                        if ( _parent) {
+                        if (_parent) {
                             handled = handled | _parent.handle(callback, greedy, composer);
                         }
-                    } else if (axis === TraversingAxis.Self) {
+                        return !!handled;                        
+                    }
+                    delete this.__axis;
+                    if (axis === TraversingAxis.Self) {
                         return this.base(callback, greedy, composer);
                     } else {
                         this.traverse(axis, function (node) {
@@ -3913,17 +3918,8 @@ new function () { // closure
                  * @returns {boolean} true if the callback was handled, false otherwise.
                  */                
                 handleAxis: function (axis, callback, greedy, composer) {
-                    var oldAxis = this.__axis;
-                    try {
-                        this.__axis = axis;
-                        return this.handle(callback, greedy, composer);
-                    } finally {
-                        if (oldAxis) {
-                            this.__axis = oldAxis;
-                        } else {
-                            delete this.__axis;
-                        }
-                    }
+                    this.__axis = axis;
+                    return this.handle(callback, greedy, composer);
                 },
                 /**
                  * Subscribes to the context notifications.
@@ -4210,21 +4206,10 @@ new function () { // closure
         axis: function (axis) {
             return this.decorate({
                 handleCallback: function (callback, greedy, composer) {
-                    if (callback instanceof Composition) {
-                        return this.base(callback, greedy, composer);
+                    if (!(callback instanceof Composition)) {
+                        this.__axis = axis;                        
                     }
-                    var oldAxis = this.__axis;
-                    try {
-                        this.__axis = axis;
-                        return this.base(callback, greedy, composer);                        
-                        
-                    } finally {
-                        if (oldAxis) {
-                            this.__axis = oldAxis;
-                        } else {
-                            delete this.__axis;
-                        }
-                    }
+                    return this.base(callback, greedy, composer);
                 },
                 equals: function (other) {
                     return (this === other) || ($decorated(this) === $decorated(other));
@@ -6697,7 +6682,7 @@ new function () { // closure
      */
     base2.package(this, {
         name:    "miruken",
-        version: "0.0.57",
+        version: "0.0.58",
         exports: "Enum,Flags,Variance,Protocol,StrictProtocol,Delegate,Miruken,MetaStep,MetaMacro," +
                  "Initializing,Disposing,DisposingMixin,Resolving,Invoking,Parenting,Starting,Startup," +
                  "Facet,Interceptor,InterceptorSelector,ProxyBuilder,Modifier,ArrayManager,IndexedList," +
@@ -10139,6 +10124,9 @@ new function () { // closure
      */        
     var ValidationCallbackHandler = CallbackHandler.extend(Validator, {
         validate: function (object, scope, results) {
+            if ($isNothing(object)) {
+                throw new TypeError("Missing object to validate.");
+            }
             var validation = new Validation(object, false, scope, results);
             $composer.handle(validation, true);
             results = validation.results;
@@ -10147,6 +10135,9 @@ new function () { // closure
             return results;
         },
         validateAsync: function (object, scope, results) {
+            if ($isNothing(object)) {
+                throw new TypeError("Missing object to validate.");
+            }            
             var validation = new Validation(object, true, scope, results),
                 composer   = $composer;
             return composer.deferAll(validation).then(function () {
