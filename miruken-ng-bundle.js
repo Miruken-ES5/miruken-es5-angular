@@ -3244,6 +3244,7 @@ new function () { // closure
          * @param   {Function}  action     -  after action
          * @param   {boolean}   reentrant  -  true if reentrant, false otherwise
          * @returns {miruken.callback.CallbackHandler}  callback handler aspect.
+         * @throws  {RejectedError} An error if before returns an unaccepted promise.
          * @for miruken.callback.CallbackHandler
          */                                                                
         aspect: function (before, after, reentrant) {
@@ -3322,7 +3323,7 @@ new function () { // closure
          * Builds a handler chain.
          * @method next
          * @param   {Arguments}  arguments  -  handler chain members
-         * @returns {miruken.callback.CallbackHandler}  chained callback handler.
+         * @returns {miruken.callback.CallbackHandler}  chaining callback handler.
          * @for miruken.callback.CallbackHandler
          */                                                                                
         next: function () {
@@ -3333,13 +3334,42 @@ new function () { // closure
             }
         },
         /**
+         * Prevents continuous or concurrent handling of callbacks.
+         * @method $guard
+         * @param   {Object}  target    -  target to guard
+         * @param   {string}  property  -  property for guard state
+         * @returns {miruken.callback.CallbackHandler}  guarding callback handler.
+         * @for miruken.callback.CallbackHandler
+         */        
+        $guard: function(target, property) {
+            if (target) {
+                var guarded = false;
+                property = property || "guarded";
+                return this.aspect(function () {
+                    if ((guarded = target[property])) {
+                        return false;
+                    }
+                    target[property] = true;
+                    return true;
+                }, function () {
+                    if (!guarded) {
+                        delete target[property];
+                        if (property in target) {
+                            target[property] = undefined;
+                        }
+                    }
+                });
+            }
+            return this;
+        },
+        /**
          * Batches subsequent callbacks.
-         * @method batch
+         * @method $batch
          * @param   {miruken.Protocol}  [...protocols]  -  protocols to batch
          * @returns {miruken.callback.CallbackHandler}  batching callback handler.
          * @for miruken.callback.CallbackHandler
          */
-        batch: function(protocols) {
+        $batch: function(protocols) {
             var composer = this,
                 batcher  = new Batcher(protocols);
             return this.decorate({
@@ -3919,6 +3949,9 @@ new function () { // closure
                  * @returns {boolean} true if the callback was handled, false otherwise.
                  */                
                 handleAxis: function (axis, callback, greedy, composer) {
+                    if (!(axis instanceof TraversingAxis)) {
+                        throw new TypeError("Invalid axis type supplied");
+                    }        
                     this.__axis = axis;
                     return this.handle(callback, greedy, composer);
                 },
@@ -6683,7 +6716,7 @@ new function () { // closure
      */
     base2.package(this, {
         name:    "miruken",
-        version: "0.0.59",
+        version: "0.0.60",
         exports: "Enum,Flags,Variance,Protocol,StrictProtocol,Delegate,Miruken,MetaStep,MetaMacro," +
                  "Initializing,Disposing,DisposingMixin,Resolving,Invoking,Parenting,Starting,Startup," +
                  "Facet,Interceptor,InterceptorSelector,ProxyBuilder,Modifier,ArrayManager,IndexedList," +
