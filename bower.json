@@ -6,7 +6,7 @@
     "Craig Neuwirt",
     "Michael Dudley"
   ],
-  "description": "Miruken focuses on convention, composition, and aspect-oriented programming.",
+  "description": "Miruken focuses on convention, composition, and inversion-of-control principles.",
   "main": "miruken-ng-bundle.js",
   "ignore": [
     ".gitignore",
