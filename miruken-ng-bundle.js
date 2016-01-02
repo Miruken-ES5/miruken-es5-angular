@@ -3499,7 +3499,7 @@ new function () { // closure
                                     clearTimeout(timeout);
                                 }
                                 resolve(res);
-                            }, function (err) { reject(err); });
+                            }, reject);
                             timeout = setTimeout(function () {
                                 if (!error) {
                                     error = new TimeoutError(callback);
