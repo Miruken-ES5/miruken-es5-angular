@@ -2756,15 +2756,18 @@ new function () { // closure
      * @class TimeoutError
      * @constructor
      * @param {Object}  callback  -  timed out callback
+     * @param {string}  message   -  timeout message
      * @extends Error
      */
-    function TimeoutError(callback) {
+    function TimeoutError(callback, message) {
         /**
          * Gets the rejected callback.
          * @property {Object} callback
          */         
         this.callback = callback;
         
+        this.message = message || "Timeout occurred";
+                    
         if (Error.captureStackTrace) {
             Error.captureStackTrace(this, this.constructor);
         } else {
@@ -3505,6 +3508,9 @@ new function () { // closure
                                     error = new TimeoutError(callback);
                                 } else if ($isFunction(error)) {
                                     error = error.new(callback);
+                                }
+                                if ($isFunction(result.reject)) {
+                                    result.reject(error);
                                 }
                                 reject(error);
                             }, ms);
@@ -6856,7 +6862,7 @@ new function () { // closure
      */
     base2.package(this, {
         name:    "miruken",
-        version: "0.0.63",
+        version: "0.0.64",
         exports: "Enum,Flags,Variance,Protocol,StrictProtocol,Delegate,Miruken,MetaStep,MetaMacro," +
                  "Initializing,Disposing,DisposingMixin,Resolving,Invoking,Parenting,Starting,Startup," +
                  "Facet,Interceptor,InterceptorSelector,ProxyBuilder,Modifier,ArrayManager,IndexedList," +
