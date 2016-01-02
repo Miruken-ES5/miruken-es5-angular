@@ -3492,13 +3492,23 @@ new function () { // closure
                 if (handled) {
                     var result = callback.callbackResult;
                     if ($isPromise(result)) {
-                        result = Promise.resolve(result);
-                        if (!error) {
-                            error = new TimeoutError(callback);
-                        } else if ($isFunction(error)) {
-                            error = error.new(callback);
-                        }
-                        callback.callbackResult = result.timeout(ms, error);
+                        callback.callbackResult = new Promise(function (resolve, reject) {
+                            var timeout;
+                            result.then(function (res) {
+                                if (timeout) {
+                                    clearTimeout(timeout);
+                                }
+                                resolve(res);
+                            });
+                            timeout = setTimeout(function () {
+                                if (!error) {
+                                    error = new TimeoutError(callback);
+                                } else if ($isFunction(error)) {
+                                    error = error.new(callback);
+                                }
+                                reject(error);
+                            }, ms);
+                        });
                     }
                 }
                 return handled;
@@ -6846,7 +6856,7 @@ new function () { // closure
      */
     base2.package(this, {
         name:    "miruken",
-        version: "0.0.62",
+        version: "0.0.63",
         exports: "Enum,Flags,Variance,Protocol,StrictProtocol,Delegate,Miruken,MetaStep,MetaMacro," +
                  "Initializing,Disposing,DisposingMixin,Resolving,Invoking,Parenting,Starting,Startup," +
                  "Facet,Interceptor,InterceptorSelector,ProxyBuilder,Modifier,ArrayManager,IndexedList," +
