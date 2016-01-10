@@ -3100,7 +3100,6 @@ new function () { // closure
             });
         },
         complete: function (composer) {
-            composer = composer || global.$composer;
             var promise = false,
                 results = Array2.reduce(this.getHandlers(), function (res, handler) {
                     var result = Batching(handler).complete(composer);
@@ -3566,20 +3565,21 @@ new function () { // closure
                     return _batcher;
                 }],
                 handleCallback: function (callback, greedy, composer) {
+                    var handled = false;
                     if (_batcher && !(callback instanceof Composition)) {
                         var b = _batcher;
                         if (_complete) {
                             _batcher = null;
                         }
-                        if (b.handleCallback(callback, false, composer)) {
+                        if ((handled = b.handleCallback(callback, greedy, composer)) && !greedy) {
                             return true;
                         }
                     }
-                    return this.base(callback, greedy, composer);
+                    return this.base(callback, greedy, composer) || handled;
                 },
                 dispose: function () {
                     _complete = true;
-                    return BatchingComplete(this).complete();
+                    return BatchingComplete(this).complete(this);
                 }
             });            
         },
@@ -6900,7 +6900,7 @@ new function () { // closure
      */
     base2.package(this, {
         name:    "miruken",
-        version: "0.0.69",
+        version: "0.0.70",
         exports: "Enum,Flags,Variance,Protocol,StrictProtocol,Delegate,Miruken,MetaStep,MetaMacro," +
                  "Initializing,Disposing,DisposingMixin,Resolving,Invoking,Parenting,Starting,Startup," +
                  "Facet,Interceptor,InterceptorSelector,ProxyBuilder,Modifier,ArrayManager,IndexedList," +
