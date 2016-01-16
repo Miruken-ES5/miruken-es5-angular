@@ -255,8 +255,8 @@ new function () { // closure
         constructor: function ($templates, $controller, $compile, $q) {
             this.extend({
                 link: function (scope, element, attr) {
-                    var context = scope.context,
-                        name    = scope.$eval(attr.region),
+                    var name    = attr.region,
+                        context = scope.context,
                         owner   = context.resolve(Controller),
                         partial = new PartialRegion(name, element, scope, $templates, $controller, $compile, $q);
                     context.onEnded(function () {
@@ -309,10 +309,9 @@ new function () { // closure
         restrict: "A",
         require:  "ngModel",
         link: function (scope, elm, attrs, ctrl) {
-            var context   = scope.context,
-                modelExpr = attrs["useModelValidation"];
+            var context = scope.context,
+                model   = attrs["useModelValidation"];
             ctrl.$validators.modelValidationHook = $debounce(function () {
-                var model = modelExpr ? scope.$eval(modelExpr) : undefined;
                 Validating(context).validateAsync(model)
                     .finally(scope.$apply.bind(scope));
                 return true;
@@ -6900,7 +6899,7 @@ new function () { // closure
      */
     base2.package(this, {
         name:    "miruken",
-        version: "0.0.71",
+        version: "0.0.72",
         exports: "Enum,Flags,Variance,Protocol,StrictProtocol,Delegate,Miruken,MetaStep,MetaMacro," +
                  "Initializing,Disposing,DisposingMixin,Resolving,Invoking,Parenting,Starting,Startup," +
                  "Facet,Interceptor,InterceptorSelector,ProxyBuilder,Modifier,ArrayManager,IndexedList," +
@@ -6985,11 +6984,12 @@ new function () { // closure
      * </pre>
      * @class Enum
      * @constructor
-     * @param  {Any} value     -  enum value
-     * @param  {string} value  -  enum name
+     * @param  {Any}     value    -  enum value
+     * @param  {string}  name     -  enum name
+     * @param  {number}  ordinal  -  enum position
      */
     var Enum = Base.extend({
-        constructor: function (value, name) {
+        constructor: function (value, name, ordinal) {
             this.constructing(value, name);
             Object.defineProperties(this, {
                 "value": {
@@ -7001,7 +7001,13 @@ new function () { // closure
                     value:        name,
                     writable:     false,
                     configurable: false
-                }
+                },
+                "ordinal": {
+                    value:        ordinal,
+                    writable:     false,
+                    configurable: false
+                },
+                
             });
         },
         constructing: function (value, name) {
@@ -7020,10 +7026,10 @@ new function () { // closure
                 }
             });
             en.__defining = true;
-            var items     = [];
+            var items     = [], ordinal = 0;
             en.names      = Object.freeze(Object.keys(choices));
             for (var choice in choices) {
-                var item = en[choice] = new en(choices[choice], choice);
+                var item = en[choice] = new en(choices[choice], choice, ordinal++);
                 items.push(item);
             }
             en.items     = Object.freeze(items);
