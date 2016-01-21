@@ -6675,7 +6675,7 @@ new function () { // closure
         constructor: function () {
             this.extend({
                 addComponent: function (componentModel, policies) {
-                    policies  = DEFAULT_POLICIES.concat(policies);
+                    policies  = DEFAULT_POLICIES.concat(policies || []);
                     for (var i = 0; i < policies.length; ++i) {
                         var policy = policies[i];
                         if ($isFunction(policy.applyComponentModel)) {
@@ -6886,7 +6886,7 @@ new function () { // closure
      */
     base2.package(this, {
         name:    "miruken",
-        version: "0.0.75",
+        version: "0.0.76",
         exports: "Enum,Flags,Variance,Protocol,StrictProtocol,Delegate,Miruken,MetaStep,MetaMacro," +
                  "Initializing,Disposing,DisposingMixin,Resolving,Invoking,Parenting,Starting,Startup," +
                  "Facet,Interceptor,InterceptorSelector,ProxyBuilder,Modifier,ArrayManager,IndexedList," +
