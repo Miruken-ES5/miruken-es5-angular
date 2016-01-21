@@ -234,6 +234,9 @@ new function () { // closure
                         });
                         
                         container.html(content);
+                        if (!_partialScope.$$phase) {
+                            _partialScope.$apply();
+                        }
                         return $q.when(partialContext);
                     }
                 }
@@ -310,7 +313,7 @@ new function () { // closure
         require:  "ngModel",
         link: function (scope, elm, attrs, ctrl) {
             var context = scope.context,
-                model   = attrs["useModelValidation"];
+                model   = attrs["useModelValidation"] || undefined;
             ctrl.$validators.modelValidationHook = $debounce(function () {
                 Validating(context).validateAsync(model)
                     .finally(scope.$apply.bind(scope));
@@ -452,7 +455,7 @@ new function () { // closure
         $ngApply: function() {
             return this.aspect(null, function(_, composer) {
                 var scope = composer.resolve("$scope");
-                if (scope) {
+                if (scope && !scope.$$phase) {
                     scope.$apply();
                 }
             });
@@ -469,9 +472,9 @@ new function () { // closure
                 var scope = composer.resolve("$scope");
                 if (scope) {
                     if (delay) {
-                        setTimeout(scope.$applyAsync.bind(scope), delay);
+                        setTimeout(scope.$evalAsync.bind(scope), delay);
                     } else {
-                        scope.$applyAsync();
+                        scope.$evalAsync();
                     }
                 }
             });
@@ -2352,7 +2355,7 @@ new function () { // closure
                                 } else {
                                     resolve();
                                 }
-                            });
+                            }, reject);
                         });
                         return true;
                     }
@@ -2642,8 +2645,7 @@ new function () { // closure
      * @param  {Object}  [delegate]  -  delegate
      * @extends Base
      */
-    var CallbackHandler = Base.extend(
-        $callbacks, {
+    var CallbackHandler = Base.extend($callbacks, {
         constructor: function (delegate) {
             this.extend({
                 /**
@@ -3531,7 +3533,12 @@ new function () { // closure
                                     clearTimeout(timeout);
                                 }
                                 resolve(res);
-                            }, reject);
+                            }, function (err) {
+                                if (timeout) {
+                                    clearTimeout(timeout);
+                                }
+                                reject(err);                                
+                            });
                             timeout = setTimeout(function () {
                                 if (!error) {
                                     error = new TimeoutError(callback);
@@ -3604,7 +3611,7 @@ new function () { // closure
                     if ($isFunction(after))
                         promise.then(function (result) {
                             after(callback, composer, state);
-                        }, function (error) {
+                        }).catch(function (error) {
                             after(callback, composer, state);
                         });
                 }
@@ -5623,7 +5630,7 @@ new function () { // closure
         imports: "miruken,miruken.graph,miruken.callback,miruken.context,miruken.validate",
         exports: "Container,Registration,ComponentPolicy,Lifestyle,TransientLifestyle," +
                  "SingletonLifestyle,ContextualLifestyle,DependencyModifier,DependencyModel," +
-                 "DependencyManager,DependencyInspector,ComponentModel,ComponentBuilder," +
+                 "DependencyManager,DependencyPolicy,ComponentModel,ComponentBuilder," +
                  "ComponentModelError,IoContainer,DependencyResolution,DependencyResolutionError," +
                  "$component,$$composer,$container"
     });
@@ -5711,17 +5718,25 @@ new function () { // closure
     });
 
      /**
-     * Protocol for applying policies to a {{#crossLink "miruken.ioc.ComponentModel"}}{{/crossLink}}
+     * Protocol for defining policies for a {{#crossLink "miruken.ioc.ComponentModel"}}{{/crossLink}}
      * @class ComponentPolicy
      * @extends miruken.Protocol
      */                
     var ComponentPolicy = Protocol.extend({
         /**
          * Applies the policy to the component model.
-         * @method apply
-         * @param {miruken.ioc.ComponentModel} componentModel  -  component model
+         * @method applyComponentModel
+         * @param  {miruken.ioc.ComponentModel} componentModel  -  component model
+         * @param  {Array}                      [...policies]   -  all known policies
          */
-         apply: function (componentModel) {}
+        applyComponentModel: function (componentModel, policies) {},
+        /**
+         * Informs the creation of a component.
+         * @method componentCreated
+         * @param  {Object} component     -  component instance
+         * @param  {Object} dependencies  -  all resolved dependencies
+         */        
+        componentCreated: function (component, dependencies) {}
     });
 
     /**
@@ -5872,18 +5887,13 @@ new function () { // closure
     });
 
     /**
-     * Extracts dependencies from a component model.
-     * @class DependencyInspector
+     * Policy for extracting dependencies from a component model.
+     * @class DependencyPolicy
+     * @uses miruken.ioc.ComponentPolicy
      * @extends Base
      */
-    var DependencyInspector = Base.extend({
-        /**
-         * Inspects the component model for dependencies.
-         * @method inspect
-         * @param   {miruken.ioc.ComponentModel} componentModel  -  component model
-         * @param   {Array}                      [...policies]   -  component policies
-         */
-        inspect: function (componentModel, policies) {
+    var DependencyPolicy = Base.extend(ComponentPolicy, {
+        applyComponentModel: function (componentModel, policies) {
             // Dependencies will be merged from inject definitions
             // starting from most derived unitl no more remain or the
             // current definition is fully specified (no undefined).
@@ -6148,7 +6158,7 @@ new function () { // closure
             }
             return !disposing;
         },
-        apply: function (componentModel) {
+        applyComponentModel: function (componentModel, policies) {
             componentModel.lifestyle = this;
         }
     });
@@ -6652,6 +6662,8 @@ new function () { // closure
     ComponentModelError.prototype             = new Error;
     ComponentModelError.prototype.constructor = ComponentModelError;
 
+    var DEFAULT_POLICIES = [ new DependencyPolicy ];
+    
     /**
      * Default Inversion of Control {{#crossLink "miruken.ioc.Container"}}{{/crossLink}}.
      * @class IoContainer
@@ -6661,45 +6673,20 @@ new function () { // closure
      */
     var IoContainer = CallbackHandler.extend(Container, {
         constructor: function () {
-            var _inspectors = [new DependencyInspector];
             this.extend({
                 addComponent: function (componentModel, policies) {
-                    policies  = policies || [];
-                    for (var i = 0; i < _inspectors.length; ++i) {
-                        _inspectors[i].inspect(componentModel, policies);
-                    }
+                    policies  = DEFAULT_POLICIES.concat(policies);
                     for (var i = 0; i < policies.length; ++i) {
                         var policy = policies[i];
-                        if ($isFunction(policy.apply)) {
-                            policy.apply(componentModel);
+                        if ($isFunction(policy.applyComponentModel)) {
+                            policy.applyComponentModel(componentModel, policies);
                         }
                     }
                     var validation = Validator($composer).validate(componentModel);
                     if (!validation.valid) {
                         throw new ComponentModelError(componentModel, validation);
                     }
-                    return this.registerHandler(componentModel); 
-                },
-                /**
-                 * Adds a component inspector to the container.
-                 * @method addInspector
-                 * @param  {Object}  inspector  -  any object with an 'inspect' method that
-                 * accepts a {{#crossLink "miruken.ioc.ComponentModel"}}{{/crossLink}} and
-                 * array of {{#crossLink "miruken.ioc.ComponentPolicy"}}{{/crossLink}}
-                 */
-                addInspector: function (inspector) {
-                    if (!$isFunction(inspector.inspect)) {
-                        throw new TypeError("Inspectors must have an inspect method.");
-                    }
-                    _inspectors.push(inspector);
-                },
-                /**
-                 * Removes a previously added component inspector from the container.
-                 * @method removeInspector
-                 * @param  {Object}  inspector  -  component inspector
-                 */                
-                removeInspector: function (inspector) {
-                    Array2.remove(_inspectors, inspector);
+                    return this.registerHandler(componentModel, policies); 
                 }
             })
         },
@@ -6708,14 +6695,14 @@ new function () { // closure
                 return registration.register(this, $composer);
             }.bind(this));
         },
-        registerHandler: function (componentModel) {
+        registerHandler: function (componentModel, policies) {
             var key       = componentModel.key,
                 clazz     = componentModel.implementation,
                 lifestyle = componentModel.lifestyle || new SingletonLifestyle,
                 factory   = componentModel.factory,
                 burden    = componentModel.burden;
             key = componentModel.invariant ? $eq(key) : key;
-            return _registerHandler(this, key, clazz, lifestyle, factory, burden); 
+            return _registerHandler(this, key, clazz, lifestyle, factory, burden, policies); 
         },
         invoke: function (fn, dependencies, ctx) {
             var inject  = fn.$inject,
@@ -6739,7 +6726,7 @@ new function () { // closure
         }
     });
 
-    function _registerHandler(container, key, clazz, lifestyle, factory, burden) {
+    function _registerHandler(container, key, clazz, lifestyle, factory, burden, policies) {
         return $provide(container, key, function handler(resolution, composer) {
             if (!(resolution instanceof DependencyResolution)) {
                 resolution = new DependencyResolution(resolution.key);
@@ -6750,12 +6737,12 @@ new function () { // closure
             return lifestyle.resolve(function () {
                 var instant      = $instant.test(resolution.key),
                     dependencies = _resolveBurden(burden, instant, resolution, composer);
-                if ($isPromise(dependencies)) {
-                    return dependencies.then(function (deps) {
-                        return factory.call(composer, deps);
-                    });
+                return $isPromise(dependencies)
+                     ? dependencies.then(createComponent)
+                     : createComponent(dependencies);
+                function createComponent(deps) {
+                    return factory.call(composer, deps);
                 }
-                return factory.call(composer, dependencies);
             }, composer);
         }, lifestyle.dispose.bind(lifestyle));
     }
@@ -6899,7 +6886,7 @@ new function () { // closure
      */
     base2.package(this, {
         name:    "miruken",
-        version: "0.0.72",
+        version: "0.0.74",
         exports: "Enum,Flags,Variance,Protocol,StrictProtocol,Delegate,Miruken,MetaStep,MetaMacro," +
                  "Initializing,Disposing,DisposingMixin,Resolving,Invoking,Parenting,Starting,Startup," +
                  "Facet,Interceptor,InterceptorSelector,ProxyBuilder,Modifier,ArrayManager,IndexedList," +
@@ -7010,6 +6997,7 @@ new function () { // closure
                 
             });
         },
+        toString: function () { return this.name; },
         constructing: function (value, name) {
             if (!this.constructor.__defining) {
                 throw new TypeError("Enums cannot be instantiated.");
@@ -7038,18 +7026,20 @@ new function () { // closure
             return Object.freeze(en);
         },
         fromValue: function (value) {
-            value = +value;
             var names = this.names;
             for (var i = 0; i < names.length; ++i) {
                 var e = this[names[i]];
-                if (e.value === value) {
+                if (e.value == value) {
                     return e;
                 }
             }
             throw new TypeError(format("%1 is not a valid value for this Enum.", value));
         }
     });
-    Enum.prototype.valueOf = function () { return this.value; }
+    Enum.prototype.valueOf = function () {
+        var value = +this.value;
+        return isNaN(value) ? this.ordinal : value;
+    }
 
     /**
      * Defines a flags enumeration.
