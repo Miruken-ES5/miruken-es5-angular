@@ -2338,14 +2338,9 @@ new function () { // closure
                  * @returns {boolean} true if the method was accepted.
                  */
                 invokeResolve: function (composer) {
-                    var handled    = false,
-                        resolution = new Resolution(protocol, true);
-                    resolution.successfulOnly = true;
-                    if (!composer.handle(resolution, true)) {
-                        return false;
-                    }
+                    var handled = false,
+                        targets = composer.resolveAll(protocol);
                     
-                    var targets = resolution.callbackResult;
                     if ($isPromise(targets)) {
                         var that = this;
                         this.returnValue = new Promise(function (resolve, reject) {
@@ -2537,7 +2532,6 @@ new function () { // closure
             many = !!many;
             var _resolutions = [],
                 _promised    = false, _result,
-                _successful  = false,
                 _instant     = $instant.test(key);
             this.extend({
                 /**
@@ -2574,23 +2568,15 @@ new function () { // closure
                             if (_resolutions.length > 0) {
                                 _result = _resolutions[0];
                             }
-                        } else if (this.instant) {
-                            _result = Array2.flatten(_resolutions);
                         } else {
-                            _result = Promise.all(_resolutions).then(Array2.flatten);
-                            if (_successful) {
-                                _result = _result.then(_FIGNORE);
-                            }
+                            _result = this.instant
+                                  ? _flattenPrune(_resolutions)
+                                  : Promise.all(_resolutions).then(_flattenPrune);
                         }
                     }
                     return _result;
                 },
                 set callbackResult(value) { _result = value; },
-                /**
-                 * Gets/sets if rejected promises are ignored.
-                 * @property {bool} true if ignore rejected promises.
-                 */                
-                set successfulOnly(value) { _successful = value; },
                 /**
                  * Adds a resolution.
                  * @param {Any} resolution  -  resolution
@@ -2602,8 +2588,8 @@ new function () { // closure
                     var promised = $isPromise(resolution);
                     if (!_instant || !promised) {
                         _promised = _promised || promised;
-                        if (promised && _successful) {
-                            resolution = resolution.catch(_IGNORE);
+                        if (promised && many) {
+                            resolution = resolution.catch(Undefined);
                         }
                         _resolutions.push(resolution);
                         _result   = undefined;
@@ -2612,19 +2598,7 @@ new function () { // closure
             });
         }
     });
-                                 
-    function _IGNORE() {
-        return _IGNORE;
-    }
 
-    function _VIGNORE(value) {
-        return value != _IGNORE;
-    }
-
-    function _FIGNORE(source) {
-        return Array2.filter(source, _VIGNORE);
-    }
-    
     /**
      * Marks a callback as composed.
      * @class Composition
@@ -3594,11 +3568,10 @@ new function () { // closure
          */
         $batch: function(protocols) {
             var _batcher  = new Batcher(protocols),
-                _complete = false;
+                _complete = false,
+                _promises = [];
             return this.decorate({
-                $provide: [Batcher, function () {
-                    return _batcher;
-                }],
+                $provide: [Batcher, function () { return _batcher; }],
                 handleCallback: function (callback, greedy, composer) {
                     var handled = false;
                     if (_batcher) {
@@ -3607,6 +3580,12 @@ new function () { // closure
                             _batcher = null;
                         }
                         if ((handled = b.handleCallback(callback, greedy, composer)) && !greedy) {
+                            if (_batcher) {
+                                var result = callback.callbackResult;
+                                if ($isPromise(result)) {
+                                    _promises.push(result);
+                                }
+                            }
                             return true;
                         }
                     }
@@ -3614,7 +3593,10 @@ new function () { // closure
                 },
                 dispose: function () {
                     _complete = true;
-                    return BatchingComplete(this).complete(this);
+                    var results = BatchingComplete(this).complete(this);
+                    return _promises.length > 0
+                         ? Promise.all(_promises).then(function () { return results; })
+                         : results;
                 }
             });            
         },
@@ -3676,16 +3658,16 @@ new function () { // closure
         }        
         switch (variance) {
             case Variance.Covariant:
-                handled  = _resultRequired;
-                comparer = _covariantComparer; 
+                handled  = _requiresResult;
+                comparer = _compareCovariant; 
                 break;
             case Variance.Contravariant:
-                handled  = _successImplied;
-                comparer = _contravariantComparer; 
+                handled  = _impliesSuccess;
+                comparer = _compareContravariant; 
                 break;
             case Variance.Invariant:
-                handled  = _resultRequired;
-                comparer = _invariantComparer; 
+                handled  = _requiresResult;
+                comparer = _compareInvariant; 
                 break;
         }
 
@@ -3902,7 +3884,7 @@ new function () { // closure
         return (variance !== Variance.Invariant) && this.constraint.test(match);
     }
 
-    function _covariantComparer(node, insert) {
+    function _compareCovariant(node, insert) {
         if (insert.match(node.constraint, Variance.Invariant)) {
             return 0;
         } else if (insert.match(node.constraint, Variance.Covariant)) {
@@ -3911,7 +3893,7 @@ new function () { // closure
         return 1;
     }
     
-    function _contravariantComparer(node, insert) {
+    function _compareContravariant(node, insert) {
         if (insert.match(node.constraint, Variance.Invariant)) {
             return 0;
         } else if (insert.match(node.constraint, Variance.Contravariant)) {
@@ -3920,16 +3902,29 @@ new function () { // closure
         return 1;
     }
 
-    function _invariantComparer(node, insert) {
+    function _compareInvariant(node, insert) {
         return insert.match(node.constraint, Variance.Invariant) ? 0 : -1;
     }
 
-    function _resultRequired(result) {
+    function _requiresResult(result) {
         return ((result !== null) && (result !== undefined) && (result !== $NOT_HANDLED));
     }
 
-    function _successImplied(result) {
+    function _impliesSuccess(result) {
         return result ? (result !== $NOT_HANDLED) : (result === undefined);
+    }
+
+    function _flattenPrune(array) {
+       var i       = 0,
+           flatten = function (result, item) {
+               if (Array2.like(item)) {
+                   Array2.reduce(item, flatten, result);
+               } else if (item != null) {
+                   result[i++] = item;
+               }
+               return result;
+           };
+      return Array2.reduce(array, flatten, []);
     }
 
     /**
@@ -6915,7 +6910,7 @@ new function () { // closure
      */
     base2.package(this, {
         name:    "miruken",
-        version: "0.0.78",
+        version: "0.0.79",
         exports: "Enum,Flags,Variance,Protocol,StrictProtocol,Delegate,Miruken,MetaStep,MetaMacro," +
                  "Initializing,Disposing,DisposingMixin,Resolving,Invoking,Parenting,Starting,Startup," +
                  "Facet,Interceptor,InterceptorSelector,ProxyBuilder,Modifier,ArrayManager,IndexedList," +
