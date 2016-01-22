@@ -2338,9 +2338,14 @@ new function () { // closure
                  * @returns {boolean} true if the method was accepted.
                  */
                 invokeResolve: function (composer) {
-                    var handled = false,
-                        targets = composer.resolveAll(protocol);
+                    var handled    = false,
+                        resolution = new Resolution(protocol, true);
+                    resolution.successful = true;
+                    if (!composer.handle(resolution, true)) {
+                        return false;
+                    }
                     
+                    var targets = resolution.callbackResult;
                     if ($isPromise(targets)) {
                         var that = this;
                         this.returnValue = new Promise(function (resolve, reject) {
@@ -2515,7 +2520,7 @@ new function () { // closure
             });
         }
     });
-
+    
     /**
      * Callback representing the covariant resolution of a key.
      * @class Resolution
@@ -2532,6 +2537,7 @@ new function () { // closure
             many = !!many;
             var _resolutions = [],
                 _promised    = false, _result,
+                _successful  = false,
                 _instant     = $instant.test(key);
             this.extend({
                 /**
@@ -2572,11 +2578,19 @@ new function () { // closure
                             _result = Array2.flatten(_resolutions);
                         } else {
                             _result = Promise.all(_resolutions).then(Array2.flatten);
+                            if (_successful) {
+                                _result = _result.then(_filterIGNORE);
+                            }
                         }
                     }
                     return _result;
                 },
-                set callbackResult(value) { _result = value; }, 
+                set callbackResult(value) { _result = value; },
+                /**
+                 * Gets/sets if rejected promises are ignored.
+                 * @property {bool} true if ignore rejected promises.
+                 */                
+                set successful(value) { _successful = value; },
                 /**
                  * Adds a resolution.
                  * @param {Any} resolution  -  resolution
@@ -2588,6 +2602,9 @@ new function () { // closure
                     var promised = $isPromise(resolution);
                     if (!_instant || !promised) {
                         _promised = _promised || promised;
+                        if (promised && _successful) {
+                            resolution = resolution.catch(_IGNORE);
+                        }
                         _resolutions.push(resolution);
                         _result   = undefined;
                     }
@@ -2595,7 +2612,19 @@ new function () { // closure
             });
         }
     });
+                                 
+    function _IGNORE() {
+        return _IGNORE;
+    }
 
+    function _ignoreIGNORE(value) {
+        return value != _ignoreIGNORE;
+    }
+
+    function _filterIGNORE(source) {
+        return Array2.filter(source, _ignoreIGNORE);
+    }
+    
     /**
      * Marks a callback as composed.
      * @class Composition
@@ -6886,7 +6915,7 @@ new function () { // closure
      */
     base2.package(this, {
         name:    "miruken",
-        version: "0.0.76",
+        version: "0.0.77",
         exports: "Enum,Flags,Variance,Protocol,StrictProtocol,Delegate,Miruken,MetaStep,MetaMacro," +
                  "Initializing,Disposing,DisposingMixin,Resolving,Invoking,Parenting,Starting,Startup," +
                  "Facet,Interceptor,InterceptorSelector,ProxyBuilder,Modifier,ArrayManager,IndexedList," +
