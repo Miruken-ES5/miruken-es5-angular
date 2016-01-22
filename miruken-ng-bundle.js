@@ -2340,7 +2340,7 @@ new function () { // closure
                 invokeResolve: function (composer) {
                     var handled    = false,
                         resolution = new Resolution(protocol, true);
-                    resolution.successful = true;
+                    resolution.successfulOnly = true;
                     if (!composer.handle(resolution, true)) {
                         return false;
                     }
@@ -2579,7 +2579,7 @@ new function () { // closure
                         } else {
                             _result = Promise.all(_resolutions).then(Array2.flatten);
                             if (_successful) {
-                                _result = _result.then(_filterIGNORE);
+                                _result = _result.then(_FIGNORE);
                             }
                         }
                     }
@@ -2590,7 +2590,7 @@ new function () { // closure
                  * Gets/sets if rejected promises are ignored.
                  * @property {bool} true if ignore rejected promises.
                  */                
-                set successful(value) { _successful = value; },
+                set successfulOnly(value) { _successful = value; },
                 /**
                  * Adds a resolution.
                  * @param {Any} resolution  -  resolution
@@ -2617,12 +2617,12 @@ new function () { // closure
         return _IGNORE;
     }
 
-    function _ignoreIGNORE(value) {
-        return value != _ignoreIGNORE;
+    function _VIGNORE(value) {
+        return value != _IGNORE;
     }
 
-    function _filterIGNORE(source) {
-        return Array2.filter(source, _ignoreIGNORE);
+    function _FIGNORE(source) {
+        return Array2.filter(source, _VIGNORE);
     }
     
     /**
@@ -6915,7 +6915,7 @@ new function () { // closure
      */
     base2.package(this, {
         name:    "miruken",
-        version: "0.0.77",
+        version: "0.0.78",
         exports: "Enum,Flags,Variance,Protocol,StrictProtocol,Delegate,Miruken,MetaStep,MetaMacro," +
                  "Initializing,Disposing,DisposingMixin,Resolving,Invoking,Parenting,Starting,Startup," +
                  "Facet,Interceptor,InterceptorSelector,ProxyBuilder,Modifier,ArrayManager,IndexedList," +
