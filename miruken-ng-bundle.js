@@ -5661,6 +5661,8 @@ new function () { // closure
 
     eval(this.imports);
 
+    Promise.onPossiblyUnhandledRejection(Undefined);
+
     /**
      * Symbol for injecting composer dependency.<br/>
      * See {{#crossLink "miruken.callback.CallbackHandler"}}{{/crossLink}}
@@ -6910,7 +6912,7 @@ new function () { // closure
      */
     base2.package(this, {
         name:    "miruken",
-        version: "0.0.79",
+        version: "0.0.80",
         exports: "Enum,Flags,Variance,Protocol,StrictProtocol,Delegate,Miruken,MetaStep,MetaMacro," +
                  "Initializing,Disposing,DisposingMixin,Resolving,Invoking,Parenting,Starting,Startup," +
                  "Facet,Interceptor,InterceptorSelector,ProxyBuilder,Modifier,ArrayManager,IndexedList," +
