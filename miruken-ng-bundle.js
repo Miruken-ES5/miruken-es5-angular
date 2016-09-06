@@ -2636,7 +2636,7 @@ new function () { // closure
     });
 
     var compositionScope = $decorator({
-        isCompositionScope: function () { return true; },
+        get isCompositionScope() { return true; },
         handleCallback: function (callback, greedy, composer) {
             if (!(callback instanceof Composition)) {
                 callback = new Composition(callback);
@@ -3165,16 +3165,15 @@ new function () { // closure
             bestEffort = false,
             handler    = delegate.handler;
 
-        if (!handler.isCompositionScope) {
-            semantics = new InvocationSemantics;
-            if (handler.handle(semantics, true)) {
-                strict     = !!(strict | semantics.getOption(InvocationOptions.Strict));
-                broadcast  = semantics.getOption(InvocationOptions.Broadcast);
-                bestEffort = semantics.getOption(InvocationOptions.BestEffort);
-                useResolve = semantics.getOption(InvocationOptions.Resolve)
-                          || protocol.conformsTo(Resolving);
-            }
+        var semantics = new InvocationSemantics;
+        if (handler.handle(semantics, true)) {
+            strict     = !!(strict | semantics.getOption(InvocationOptions.Strict));
+            broadcast  = semantics.getOption(InvocationOptions.Broadcast);
+            bestEffort = semantics.getOption(InvocationOptions.BestEffort);
+            useResolve = semantics.getOption(InvocationOptions.Resolve)
+                      || protocol.conformsTo(Resolving);
         }
+
         var handleMethod = useResolve
                          ? new ResolveMethod(type, protocol, methodName, args, strict, broadcast, !bestEffort)
                          : new HandleMethod(type, protocol, methodName, args, strict);
