@@ -1,1 +1,1 @@
-#bower-miruken-angular
+#bower-miruken-es5-angular

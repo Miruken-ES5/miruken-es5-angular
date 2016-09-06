@@ -1,25 +1,24 @@
 {
-  "name": "miruken-angular",
+  "name": "miruken-es5-angular",
   "version": "0.0.87",
-  "homepage": "http://miruken.com",
+  "homepage": "https://github.com/Miruken-ES5/bower-miruken-es5-angular",
   "authors": [
-    "Craig Neuwirt",
-    "Michael Dudley"
+    "Craig.Neuwirt <craig.neuwirt@improving.com>",
+    "Michael Dudley <michael.dudley@improving.com>"
   ],
-  "description": "Miruken focuses on convention, composition, and inversion-of-control principles.",
+  "description": "A Miruken and Angular integration",
   "main": "miruken-ng-bundle.js",
-  "ignore": [
-    ".gitignore",
-    "bower.json"
-  ],
-  "dependencies": {
-    "angular": "~1.4.6",
-    "angular-ui-router": "~0.2.15"
-  },
   "keywords": [
     "miruken",
     "angular",
     "javascript"
   ],
-  "license": "MIT"
+  "license": "MIT",
+  "ignore": [
+    ".gitignore"
+  ],
+  "dependencies": {
+    "angular": "~1.4.6",
+    "angular-ui-router": "~0.2.15"
+  }
 }
