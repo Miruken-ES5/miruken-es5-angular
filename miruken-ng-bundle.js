@@ -2664,6 +2664,7 @@ new function () { // closure
                 get delegate() { return delegate; }
             });
         },
+        get isCompositionScope() { return false; },
         /**
          * Handles the callback.
          * @method handle
@@ -3165,21 +3166,25 @@ new function () { // closure
             bestEffort = false,
             handler    = delegate.handler;
 
-        var semantics = new InvocationSemantics;
-        if (handler.handle(semantics, true)) {
-            strict     = !!(strict | semantics.getOption(InvocationOptions.Strict));
-            broadcast  = semantics.getOption(InvocationOptions.Broadcast);
-            bestEffort = semantics.getOption(InvocationOptions.BestEffort);
-            useResolve = semantics.getOption(InvocationOptions.Resolve)
-                      || protocol.conformsTo(Resolving);
+        if (!handler.isCompositionScope) {
+            var semantics = new InvocationSemantics;
+            if (handler.handle(semantics, true)) {
+                strict     = !!(strict | semantics.getOption(InvocationOptions.Strict));
+                broadcast  = semantics.getOption(InvocationOptions.Broadcast);
+                bestEffort = semantics.getOption(InvocationOptions.BestEffort);
+                useResolve = semantics.getOption(InvocationOptions.Resolve)
+                          || protocol.conformsTo(Resolving);
+            }
         }
-
+        
         var handleMethod = useResolve
-                         ? new ResolveMethod(type, protocol, methodName, args, strict, broadcast, !bestEffort)
-                         : new HandleMethod(type, protocol, methodName, args, strict);
+          ? new ResolveMethod(type, protocol, methodName, args, strict, broadcast, !bestEffort)
+          : new HandleMethod(type, protocol, methodName, args, strict);
+        
         if (!handler.handle(handleMethod, broadcast && !useResolve) && !bestEffort) {
             throw new TypeError(format("Object %1 has no method '%2'", handler, methodName));
         }
+        
         return handleMethod.returnValue;
     }
 
