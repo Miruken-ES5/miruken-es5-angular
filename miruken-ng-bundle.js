@@ -2633,12 +2633,16 @@ new function () { // closure
                 });
             }
         }
+    }, {
+        isComposed: function (callback, type) {
+            return callback instanceof this &&
+                callback.callback instanceof type;
+        }
     });
 
     var compositionScope = $decorator({
-        get isCompositionScope() { return true; },
         handleCallback: function (callback, greedy, composer) {
-            if (!(callback instanceof Composition)) {
+            if (callback.constructor !== Composition) {
                 callback = new Composition(callback);
             }
             return this.base(callback, greedy, composer);
@@ -2664,7 +2668,6 @@ new function () { // closure
                 get delegate() { return delegate; }
             });
         },
-        get isCompositionScope() { return false; },
         /**
          * Handles the callback.
          * @method handle
@@ -3029,7 +3032,7 @@ new function () { // closure
      * @class InvocationSemantics
      * @constructor
      * @param  {miruken.callback.InvocationOptions}  options  -  invocation options.
-     * @extends Base
+     * @extends Composition
      */
     var InvocationSemantics = Composition.extend({
         constructor: function (options) {
@@ -3073,7 +3076,7 @@ new function () { // closure
          * @method mergeInto
          * @param   {miruken.callback.InvocationSemantics}  semantics  -  receives invocation semantics
          */                
-        mergeInto: function _(semantics) {
+        mergeInto: function (semantics) {
             var items = InvocationOptions.items;
             for (var i = 0; i < items.length; ++i) {
                 var option = +items[i];
@@ -3166,15 +3169,13 @@ new function () { // closure
             bestEffort = false,
             handler    = delegate.handler;
 
-        if (!handler.isCompositionScope) {
-            var semantics = new InvocationSemantics;
-            if (handler.handle(semantics, true)) {
-                strict     = !!(strict | semantics.getOption(InvocationOptions.Strict));
-                broadcast  = semantics.getOption(InvocationOptions.Broadcast);
-                bestEffort = semantics.getOption(InvocationOptions.BestEffort);
-                useResolve = semantics.getOption(InvocationOptions.Resolve)
-                          || protocol.conformsTo(Resolving);
-            }
+        var semantics = new InvocationSemantics;
+        if (handler.handle(semantics, true)) {
+            strict     = !!(strict | semantics.getOption(InvocationOptions.Strict));
+            broadcast  = semantics.getOption(InvocationOptions.Broadcast);
+            bestEffort = semantics.getOption(InvocationOptions.BestEffort);
+            useResolve = semantics.getOption(InvocationOptions.Resolve)
+                      || protocol.conformsTo(Resolving);
         }
         
         var handleMethod = useResolve
@@ -3236,6 +3237,9 @@ new function () { // closure
             return this.decorate({
                 handleCallback: function (callback, greedy, composer) {
                     var handled = false;
+                    if (Composition.isComposed(callback, InvocationSemantics)) {
+                        return false;
+                    }
                     if (callback instanceof InvocationSemantics) {
                         semantics.mergeInto(callback);
                         handled = true;
