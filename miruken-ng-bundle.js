@@ -3970,7 +3970,7 @@ new function () { // closure
     function _flattenPrune(array) {
        var i       = 0,
            flatten = function (result, item) {
-               if (Array2.like(item)) {
+               if ($isArray(item)) {
                    Array2.reduce(item, flatten, result);
                } else if (item != null) {
                    result[i++] = item;
@@ -6923,7 +6923,7 @@ new function () { // closure
      */
     base2.package(this, {
         name:    "miruken",
-        version: "1.0.0",
+        version: "1.0.1",
         exports: "Enum,Flags,Variance,Protocol,StrictProtocol,Delegate,Miruken,MetaStep,MetaMacro," +
                  "Initializing,Disposing,DisposingMixin,Resolving,Invoking,Parenting,Starting,Startup," +
                  "Facet,Interceptor,InterceptorSelector,ProxyBuilder,Modifier,ArrayManager,IndexedList," +
