@@ -526,7 +526,8 @@ new function () { // closure
      * @param  {Array}    exports  - exported members
      */
     function _registerContents(package, module, exports) {
-        var container = Container($appContext);
+        var unknown   = exports.slice(),
+            container = Container($appContext);
         Array2.forEach(exports, function (name) {
             var member = package[name];
             if (!member || !member.prototype || $isProtocol(member)) {
@@ -546,6 +547,7 @@ new function () { // closure
                 }
                 name = name.charAt(0).toLowerCase() + name.slice(1);
                 module.directive(name, deps);
+                Array2.remove(unknown, name);
             } else if (memberProto instanceof Controller) {
                 var controller = new ComponentModel;
                 controller.key = member;
@@ -555,6 +557,7 @@ new function () { // closure
                 deps.unshift("$scope", "$injector");
                 deps.push(Shim(member, deps.slice()));
                 module.controller(name, deps);
+                Array2.remove(unknown, name);                
             } else if (memberProto instanceof Filter) {
                 var filter = new ComponentModel;
                 filter.key = member;
@@ -571,10 +574,11 @@ new function () { // closure
                 }
                 name = name.charAt(0).toLowerCase() + name.slice(1);
                 module.filter(name, deps);
+                Array2.remove(unknown, name);                
             }
         });
         container.register(
-            $classes.fromPackage(package, exports).basedOn(Resolving)
+            $classes.fromPackage(package, unknown).basedOn(Resolving)
                 .withKeys.mostSpecificService()
         );             
     }
@@ -6923,7 +6927,7 @@ new function () { // closure
      */
     base2.package(this, {
         name:    "miruken",
-        version: "1.0.1",
+        version: "1.0.2",
         exports: "Enum,Flags,Variance,Protocol,StrictProtocol,Delegate,Miruken,MetaStep,MetaMacro," +
                  "Initializing,Disposing,DisposingMixin,Resolving,Invoking,Parenting,Starting,Startup," +
                  "Facet,Interceptor,InterceptorSelector,ProxyBuilder,Modifier,ArrayManager,IndexedList," +
