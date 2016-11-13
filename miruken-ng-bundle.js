@@ -173,6 +173,8 @@ new function () { // closure
                                     return compile();
                                 });
                             }
+                        } else {
+                            _controller = composer.resolve(Controller);
                         }
 
                         function compile() {
@@ -537,7 +539,8 @@ new function () { // closure
             name = memberProto.$name || name;
             if (memberProto instanceof Directive) {
                 var directive = new ComponentModel;
-                directive.key = member;
+                directive.key = [member, name];
+                directive.implementation = member;
                 container.addComponent(directive);
                 var deps = _ngDependencies(directive);
                 deps.unshift("$rootScope", "$injector");
@@ -6927,7 +6930,7 @@ new function () { // closure
      */
     base2.package(this, {
         name:    "miruken",
-        version: "1.0.2",
+        version: "1.0.3",
         exports: "Enum,Flags,Variance,Protocol,StrictProtocol,Delegate,Miruken,MetaStep,MetaMacro," +
                  "Initializing,Disposing,DisposingMixin,Resolving,Invoking,Parenting,Starting,Startup," +
                  "Facet,Interceptor,InterceptorSelector,ProxyBuilder,Modifier,ArrayManager,IndexedList," +
