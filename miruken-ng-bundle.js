@@ -539,8 +539,7 @@ new function () { // closure
             name = memberProto.$name || name;
             if (memberProto instanceof Directive) {
                 var directive = new ComponentModel;
-                directive.key = [member, name];
-                directive.implementation = member;
+                directive.key = member;
                 container.addComponent(directive);
                 var deps = _ngDependencies(directive);
                 deps.unshift("$rootScope", "$injector");
@@ -553,7 +552,8 @@ new function () { // closure
                 Array2.remove(unknown, name);
             } else if (memberProto instanceof Controller) {
                 var controller = new ComponentModel;
-                controller.key = member;
+                controller.key = [member, name];
+                controller.implementation = member;                
                 controller.lifestyle = new ContextualLifestyle;
                 container.addComponent(controller);
                 var deps = _ngDependencies(controller);
