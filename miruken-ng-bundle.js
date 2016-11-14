@@ -5,6 +5,7 @@ module.exports = require('./ng.js');
 var miruken = require('../miruken');
               require('../ioc');
               require('../mvc');
+              require('../error');
 
 new function () { // closure
 
@@ -26,8 +27,9 @@ new function () { // closure
      */
     miruken.package(this, {
         name:    "ng",
-        imports: "miruken,miruken.callback,miruken.context,miruken.validate,miruken.ioc,miruken.mvc",
-        exports: "Runner,Directive,Filter,RegionDirective,DynamicControllerDirective," +
+        imports: "miruken,miruken.callback,miruken.context,miruken.validate,miruken.ioc," +
+                 "miruken.mvc,miruken.error",
+        exports: "Runner,Directive,Filter,UiRouter,RegionDirective,DynamicControllerDirective," +
                  "PartialRegion,UseModelValidation,DigitsOnly,InhibitFocus,TrustFilter," +
                  "$appContext,$envContext,$rootContext"
     });
@@ -96,7 +98,64 @@ new function () { // closure
          */
         filter: function (input) { return input; }
     });
-    
+
+    /**
+     * Adapts the [Angular ui-router] (https://github.com/angular-ui/ui-router)
+     * to support conventional MVC semantics
+     * @class Router
+     * @extends Base     
+     */
+    var UiRouter = Base.extend({
+        constructor: function ($scope, params, state) {
+            var _this  = this;            
+            $scope.loaded = function () {
+                delete $scope.loaded;
+                _this.executeController(this.context, params, state);
+            };
+        },
+        executeController: function (context, params, state) {
+            this.resolveController(context, params, state).then(function (ctrl) {
+                var action = params.action || "index",
+                    method = ctrl[action];
+                return $isFunction(method)
+                    ? method.call(ctrl, params)
+                    : Promise.reject(ctrl + " missing action " + action);
+            })
+            .catch(function (err) { Errors(context).handleError(err, "ui-router"); });
+        },
+        resolveController: function (context, params, state) {
+            var controller = params.controller;
+            if (controller == null || controller.length === 0) {
+                return Promise.reject("Controller could not be determined for state " + state.current.name);
+            }            
+            controllerName = this.inferControllerName(controller);
+            return Promise.resolve(context.resolve(controllerName)).then(function (ctrl) {
+                if (ctrl) { return ctrl; }
+                if (controllerName != controller) {
+                    return Promise.resolve(context.resolve(controller)).then(function (ctrl) {
+                        return ctrl ? ctrl : Promise.reject(controllerName + " could not be resolved");
+                    });
+                }
+                return Promise.reject(controller + " Controller could not be resolved");
+            });
+        },
+        inferControllerName: function (controller) {
+            return controller.endsWith("Controller") ? controller : controller + "Controller";
+        }
+    }, {
+        $inject:  ["$scope", "$stateParams", "$state"],
+        route: function (urlPattern, options) {
+            var route = {
+                url:          urlPattern,
+                template:     this.template,
+                controller:   this                
+            };
+            if (options) { route.params = options; }
+            return route;
+        },
+        template: "<div region>{{ ::loaded() }}</div>"
+    });
+
     /**
      * Represents an area to render a view in.
      * @class PartialRegion
@@ -705,7 +764,7 @@ new function () { // closure
 }
 
 }).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"../ioc":10,"../miruken":12,"../mvc":17}],3:[function(require,module,exports){
+},{"../error":6,"../ioc":10,"../miruken":12,"../mvc":17}],3:[function(require,module,exports){
 /*
   base2 - copyright 2007-2009, Dean Edwards
   http://code.google.com/p/base2/
@@ -3936,8 +3995,11 @@ new function () { // closure
         return false;
     }
 
-    function _matchString(match) {
-        return $isString(match) && this.constraint == match;
+    function _matchString(match, variance) {
+        if (!$isString(match)) { return false;}
+        return variance === Variance.Invariant
+            ? this.constraint == match
+            : this.constraint.toLowerCase() == match.toLowerCase();
     }
 
     function _matchRegExp(match, variance) {
