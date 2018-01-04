@@ -1,9 +1,9 @@
 # Miruken Devs 
 ## Steps to publish to Bower & Yarn (npm):
-1. Copy new files from dist folder of https://github.com/Miruken-ES5/miruken
+1. Copy updated miruken-ng-bundle.js & miruken-ng-bundle.min.js files from the /dist folder of https://github.com/Miruken-ES5/miruken
 2. Update version in /bower.json to match the updated version from [https://github.com/Miruken-ES5/miruken/blob/master/lib/miruken.js](https://github.com/Miruken-ES5/miruken/blob/master/lib/miruken.js)
-3. `> git add bower.json`  
-	- *(This will be committed automatically in step 4)* 
+3. `> git add .`  
+	- *(Staged files will be committed automatically in step 4)* 
 4. `> yarn publish`  
 	- *(This uses the Miruken NPM Credentials)* 
 	- When it prompts for new version, enter the same thing you changed it to in /bower.json (from [https://github.com/Miruken-ES5/miruken/blob/master/lib/miruken.js](https://github.com/Miruken-ES5/miruken/blob/master/lib/miruken.js)). This will do 2 things: 
