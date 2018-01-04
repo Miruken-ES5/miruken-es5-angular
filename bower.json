@@ -15,18 +15,15 @@
   ],
   "license": "MIT",
   "ignore": [
-    ".gitignore"
-  ],
-  "dependencies": {
-    "angular": "~1.4.6",
-    "angular-ui-router": "~0.2.15"
-  },
-  "ignore": [
+	".gitignore",
 	".npmignore",
 	"package.json",
 	"yarn.lock",
 	"PACKAGE-CREATOR-README.md",
-	"node_modules",
-	".gitignore"
-  ]
+	"node_modules"
+  ],
+  "dependencies": {
+    "angular": "~1.4.6",
+    "angular-ui-router": "~0.2.15"
+  }
 }
