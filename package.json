@@ -1,0 +1,28 @@
+{
+  "name": "miruken-es5-angular",
+  "version": "0.0.5",
+  "description": "A Miruken and Angular integration",
+  "author": "Miruken",
+  "contributors": [
+    {
+      "name": "Craig Neuwirt",
+      "email": "craig.neuwirt@improving.com"
+    },
+    {
+      "name": "Michael Dudley",
+      "email": "michael.dudley@improving.com"
+    }
+  ],
+  "main": "miruken-ng-bundle.js",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Miruken-ES5/bower-miruken-es5-angular"
+  },
+  "bugs": {
+    "url": "https://github.com/nodejitsu/browsenpm.org/issues"
+  },
+  "dependencies": {
+    "angular": "~1.4.6",
+    "angular-ui-router": "~0.2.15"
+  }
+}

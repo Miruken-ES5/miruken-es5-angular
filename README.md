@@ -1,1 +1,2 @@
-#bower-miruken-es5-angular
+# A Miruken and Angular integration  
+[http://miruken.com/documentation/master/miruken-es5/article/en-US/mvc/angular](http://miruken.com/documentation/master/miruken-es5/article/en-US/mvc/angular "Documentation")  
