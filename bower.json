@@ -1,6 +1,6 @@
 {
   "name": "miruken-es5-angular",
-  "version": "0.0.5",
+  "version": "0.0.6",
   "homepage": "https://github.com/Miruken-ES5/bower-miruken-es5-angular",
   "authors": [
     "Craig.Neuwirt <craig.neuwirt@improving.com>",
@@ -26,6 +26,7 @@
 	"package.json",
 	"yarn.lock",
 	"PACKAGE-CREATOR-README.md",
-	"node_modules"
+	"node_modules",
+	".gitignore"
   ]
 }
