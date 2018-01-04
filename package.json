@@ -19,7 +19,7 @@
     "url": "https://github.com/Miruken-ES5/bower-miruken-es5-angular"
   },
   "bugs": {
-    "url": "https://github.com/nodejitsu/browsenpm.org/issues"
+    "url": "https://github.com/Miruken-ES5/miruken/issues"
   },
   "dependencies": {
     "angular": "~1.4.6",
