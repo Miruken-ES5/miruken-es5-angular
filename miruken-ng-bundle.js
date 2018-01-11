@@ -31,7 +31,8 @@ new function () { // closure
      */
     miruken.package(this, {
         name:    "ng",
-        imports: "miruken,miruken.callback,miruken.context,miruken.ioc,miruken.mvc",
+        imports: "miruken,miruken.callback,miruken.context," +
+            	 "miruken.validate,miruken.ioc,miruken.mvc",
         exports: "Runner,Directive,Filter,DynamicControllerDirective," +
                  "UseModelValidation,DigitsOnly,InhibitFocus,TrustFilter," +
                  "$appContext,$envContext,$rootContext"
@@ -7211,7 +7212,7 @@ new function () { // closure
      */
     base2.package(this, {
         name:    "miruken",
-        version: "2.0.4",
+        version: "2.0.3",
         exports: "Enum,Flags,Variance,Protocol,StrictProtocol,Delegate,Miruken,MetaStep,MetaMacro," +
                  "Initializing,Disposing,DisposingMixin,Resolving,Invoking,Parenting,Starting,Startup," +
                  "Facet,Interceptor,InterceptorSelector,ProxyBuilder,Modifier,ArrayManager,IndexedList," +
@@ -16373,10 +16374,6 @@ process.off = noop;
 process.removeListener = noop;
 process.removeAllListeners = noop;
 process.emit = noop;
-process.prependListener = noop;
-process.prependOnceListener = noop;
-
-process.listeners = function (name) { return [] }
 
 process.binding = function (name) {
     throw new Error('process.binding is not supported');
