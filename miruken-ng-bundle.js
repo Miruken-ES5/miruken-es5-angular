@@ -749,7 +749,7 @@ new function () { // closure
      * @class UiRouter
      * @extends Router
      */
-    var UiRouter = Router.extend({
+    var UiRouter = Router.extend($inheritStatic, {
         constructor: function (prefix, $state, $urlMatcherFactory) {
             var _urls = {};            
             prefix = prefix + ".";
@@ -7214,7 +7214,7 @@ new function () { // closure
      */
     base2.package(this, {
         name:    "miruken",
-        version: "2.0.7",
+        version: "2.0.8",
         exports: "Enum,Flags,Variance,Protocol,StrictProtocol,Delegate,Miruken,MetaStep,MetaMacro," +
                  "Initializing,Disposing,DisposingMixin,Resolving,Invoking,Parenting,Starting,Startup," +
                  "Facet,Interceptor,InterceptorSelector,ProxyBuilder,Modifier,ArrayManager,IndexedList," +
