@@ -829,14 +829,16 @@ new function () { // closure
         }
     }, {
         install: function (prefix) {
+            var clazz = this;
             return {
                 name:       prefix,
                 abstract:   true,
                 template:   "<div route-region></div>",
                 controller: ["$scope", "$state", "$urlMatcherFactory",
                              function ($scope, $state, $urlMatcherFactory) {
-                    var context = $scope.context;            
-                    context.addHandlers(new UiRouter(prefix, $state, $urlMatcherFactory));
+                    var context = $scope.context,
+                        router  = clazz.new.call(clazz, prefix, $state, $urlMatcherFactory);
+                    context.addHandlers(router);
                     $scope.$on("$stateChangeSuccess", function (event, toState, toParams) {
                         var route = new Route({
                                 name:    toState.name,
@@ -7212,7 +7214,7 @@ new function () { // closure
      */
     base2.package(this, {
         name:    "miruken",
-        version: "2.0.6",
+        version: "2.0.7",
         exports: "Enum,Flags,Variance,Protocol,StrictProtocol,Delegate,Miruken,MetaStep,MetaMacro," +
                  "Initializing,Disposing,DisposingMixin,Resolving,Invoking,Parenting,Starting,Startup," +
                  "Facet,Interceptor,InterceptorSelector,ProxyBuilder,Modifier,ArrayManager,IndexedList," +
