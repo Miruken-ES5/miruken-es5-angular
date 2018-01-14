@@ -7212,7 +7212,7 @@ new function () { // closure
      */
     base2.package(this, {
         name:    "miruken",
-        version: "2.0.3",
+        version: "2.0.6",
         exports: "Enum,Flags,Variance,Protocol,StrictProtocol,Delegate,Miruken,MetaStep,MetaMacro," +
                  "Initializing,Disposing,DisposingMixin,Resolving,Invoking,Parenting,Starting,Startup," +
                  "Facet,Interceptor,InterceptorSelector,ProxyBuilder,Modifier,ArrayManager,IndexedList," +
@@ -9800,6 +9800,12 @@ new function () { // closure
         get ifValid() {
             return this.io.$validAsync(this);
         },
+
+        show: function (handler, view) {
+            return handler instanceof CallbackHandler
+                 ? miruken.mvc.ViewRegion(handler).show(view)
+                 : miruken.mvc.ViewRegion(io).show(handler);
+        },
         validate: function (target, scope) {
             return _validate.call(this, target, "validate", scope);
         },
@@ -9918,7 +9924,9 @@ new function () { // closure
     function _assemble(handler, builders, context) {
         return handler && builders
              ?  builders.reduce(function (result, builder) {
-                    return $isFunction(builder) ? builder.call(context, result) : result;
+                 return $isFunction(builder)
+                     ? builder.call(context, result) || result
+                     : result;
                 }, handler)
             : handler;
     }
