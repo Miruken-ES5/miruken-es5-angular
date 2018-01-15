@@ -749,8 +749,8 @@ new function () { // closure
      * @class UiRouter
      * @extends Router
      */
-    var UiRouter = Router.extend($inheritStatic, {
-        constructor: function (prefix, $state, $urlMatcherFactory, context) {
+    var UiRouter = Router.extend(context.$contextual, $inheritStatic, {
+        constructor: function (prefix, $state, $urlMatcherFactory) {
             var _urls = {};            
             prefix = prefix + ".";
             this.extend({
@@ -841,7 +841,8 @@ new function () { // closure
                 controller: ["$scope", "$state", "$urlMatcherFactory",
                              function ($scope, $state, $urlMatcherFactory) {
                     var context = $scope.context,
-                        router  = clazz.new.call(clazz, prefix, $state, $urlMatcherFactory, context);
+                        router  = clazz.new.call(clazz, prefix, $state, $urlMatcherFactory);
+                    router.context = context;
                     context.addHandlers(router);
                     $scope.$on("$stateChangeSuccess", function (event, toState, toParams) {
                         var route = new Route({
@@ -7221,7 +7222,7 @@ new function () { // closure
      */
     base2.package(this, {
         name:    "miruken",
-        version: "2.0.9",
+        version: "2.0.10",
         exports: "Enum,Flags,Variance,Protocol,StrictProtocol,Delegate,Miruken,MetaStep,MetaMacro," +
                  "Initializing,Disposing,DisposingMixin,Resolving,Invoking,Parenting,Starting,Startup," +
                  "Facet,Interceptor,InterceptorSelector,ProxyBuilder,Modifier,ArrayManager,IndexedList," +
