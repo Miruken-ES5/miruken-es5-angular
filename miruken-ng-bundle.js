@@ -750,10 +750,14 @@ new function () { // closure
      * @extends Router
      */
     var UiRouter = Router.extend($inheritStatic, {
-        constructor: function (prefix, $state, $urlMatcherFactory) {
+        constructor: function (prefix, $state, $urlMatcherFactory, context) {
             var _urls = {};            
             prefix = prefix + ".";
             this.extend({
+                handleRoute: function (route) {
+                    $state.go(route.name, route.params, { notify: false });
+                    return this.base(route)
+                },
                 followNavigation: function (navigation) {
                     var states = $state.get();
                     for (var i = 0; i < states.length; ++i) {
@@ -828,7 +832,7 @@ new function () { // closure
             return true;
         }
     }, {
-        install: function (prefix) {
+        install: function (prefix, created) {
             var clazz = this;
             return {
                 name:       prefix,
@@ -837,7 +841,7 @@ new function () { // closure
                 controller: ["$scope", "$state", "$urlMatcherFactory",
                              function ($scope, $state, $urlMatcherFactory) {
                     var context = $scope.context,
-                        router  = clazz.new.call(clazz, prefix, $state, $urlMatcherFactory);
+                        router  = clazz.new.call(clazz, prefix, $state, $urlMatcherFactory, context);
                     context.addHandlers(router);
                     $scope.$on("$stateChangeSuccess", function (event, toState, toParams) {
                         var route = new Route({
@@ -853,6 +857,9 @@ new function () { // closure
                                 Errors(ctx).handleError(err, "ui-router");
                             });
                     });
+                    if ($isFunction(created)) {
+                        created(router);                 
+                    }
                 }]
             };
         },
@@ -7214,7 +7221,7 @@ new function () { // closure
      */
     base2.package(this, {
         name:    "miruken",
-        version: "2.0.8",
+        version: "2.0.9",
         exports: "Enum,Flags,Variance,Protocol,StrictProtocol,Delegate,Miruken,MetaStep,MetaMacro," +
                  "Initializing,Disposing,DisposingMixin,Resolving,Invoking,Parenting,Starting,Startup," +
                  "Facet,Interceptor,InterceptorSelector,ProxyBuilder,Modifier,ArrayManager,IndexedList," +
