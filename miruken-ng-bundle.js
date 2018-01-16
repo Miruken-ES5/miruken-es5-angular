@@ -7220,7 +7220,7 @@ new function () { // closure
      */
     base2.package(this, {
         name:    "miruken",
-        version: "2.0.11",
+        version: "2.0.12",
         exports: "Enum,Flags,Variance,Protocol,StrictProtocol,Delegate,Miruken,MetaStep,MetaMacro," +
                  "Initializing,Disposing,DisposingMixin,Resolving,Invoking,Parenting,Starting,Startup," +
                  "Facet,Interceptor,InterceptorSelector,ProxyBuilder,Modifier,ArrayManager,IndexedList," +
@@ -9827,11 +9827,11 @@ new function () { // closure
             obj        = controller.prototype;
         action = navigate[action];
         do {
-            Array2.forEach(Object.getOwnPropertyNames(object), function (key) {
+            Array2.forEach(Object.getOwnPropertyNames(obj), function (key) {
                 if (IGNORE_TRAMPOLINE.indexOf(key) >= 0 || (key in trampoline))  {
                     return;
                 }
-                var descriptor = Object.getOwnPropertyDescriptor(object, key);
+                var descriptor = Object.getOwnPropertyDescriptor(obj, key);
                 if (descriptor == null || !$isFunction(descriptor.value)) {
                     return;
                 }
