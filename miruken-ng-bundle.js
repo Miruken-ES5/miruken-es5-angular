@@ -727,9 +727,7 @@ new function () { // closure
             this.extend({
                 show: function (view) {
                     var composer = $composer,
-                        route    = composer.resolve(Route),
-                        layer    = this.base(view);                        
-                    if (route) { return layer; }
+                        layer    = this.base(view);
                     var navigate = composer.resolve(Navigation);
                     if (!navigate) { return layer; }
                     return layer.then(function (result) {
@@ -7222,7 +7220,7 @@ new function () { // closure
      */
     base2.package(this, {
         name:    "miruken",
-        version: "2.0.10",
+        version: "2.0.11",
         exports: "Enum,Flags,Variance,Protocol,StrictProtocol,Delegate,Miruken,MetaStep,MetaMacro," +
                  "Initializing,Disposing,DisposingMixin,Resolving,Invoking,Parenting,Starting,Startup," +
                  "Facet,Interceptor,InterceptorSelector,ProxyBuilder,Modifier,ArrayManager,IndexedList," +
@@ -9759,42 +9757,6 @@ new function () { // closure
         push: function (controller, action) {}        
     });
 
-    var IGNORE_NAVIGATION = [ "base", "constructor", "dispose" ];
-    
-    var $navigation = MetaMacro.extend({
-        inflate: function (step, metadata, target, definition) {
-            if (!Controller) { return; }
-            Array2.forEach(Object.getOwnPropertyNames(definition), function (key) {
-                if (IGNORE_NAVIGATION.indexOf(key) >= 0 || key.lastIndexOf("_", 0) === 0) {
-                    return;
-                }
-                var member = Object.getOwnPropertyDescriptor(definition, key);
-                if ($isFunction(member.value) && !$isClass(member.value)) {
-                    var method = member.value;
-                    member.value = function () {
-                        var io = Controller.io || this.context;
-                        if (io && key !== "initialize") {
-                            io = io.$$provide([Navigation, new Navigation({
-                                controller: this,
-                                action:     key,
-                                args:       Array.prototype.slice.call(arguments)
-                            })]);
-                        }
-                        try {
-                            _bindIo.call(this, io);                            
-                            return method.apply(this, arguments);
-                        } catch (exception) {
-                            Errors(io).handleException(exception);
-                        };
-                    };
-                }
-                Object.defineProperty(definition, key, member);
-            });
-        },
-        shouldInherit: True,
-        isActive: True
-    });
-
     /**
      * Base class for controllers.
      * @class Controller
@@ -9804,7 +9766,7 @@ new function () { // closure
      * @uses miruken.validate.$validateThat
      * @uses miruken.validate.Validating
      */
-    var Controller = CallbackHandler.extend($contextual, $navigation,
+    var Controller = CallbackHandler.extend($contextual,
                                             $validateThat, Validating,
                                             DisposingMixin, {
         get ifValid() {
@@ -9828,20 +9790,67 @@ new function () { // closure
         }
     }, {
         coerce: function (source) {
-            var controller = this,
-                navigate   = Navigate(source);
+            var controller = this;
             return {
-                next: function (action) {
-                    return navigate.next(controller, action);
+                get next() {
+                    return createTrampoline(controller, source, 'next');
                 },
-                push: function (action) {
-                    return navigate.push(controller, action);
+                get push() {
+                    return createTrampoline(controller, source, 'push');
                 }
             };
         },
+        bindIO: function (io, controller) {
+            if (!io) { return; }
+            io = _assemble(io, globalPrepare, controller);
+            if (globalExecute.length === 0) {
+                this.io = io;
+                return;
+            }
+            var executor   = controller.io = io.decorate({
+                toDelegate: function () {
+                    var ex = _assemble(this, globalExecute, controller);
+                    delete executor.toDelegate;
+                    return ex.toDelegate();
+                }
+            });
+        },        
         get prepare() { return globalPrepare; },
         get execute() { return globalExecute; }        
     });
+
+    var IGNORE_TRAMPOLINE = [ "base", "constructor", "initialize", "dispose" ];
+
+    function createTrampoline(controller, source, action) {
+        var trampoline = {},
+            navigate   = Navigate(source),
+            obj        = controller.prototype;
+        action = navigate[action];
+        do {
+            Array2.forEach(Object.getOwnPropertyNames(object), function (key) {
+                if (IGNORE_TRAMPOLINE.indexOf(key) >= 0 || (key in trampoline))  {
+                    return;
+                }
+                var descriptor = Object.getOwnPropertyDescriptor(object, key);
+                if (descriptor == null || !$isFunction(descriptor.value)) {
+                    return;
+                }
+                trampoline[key] = function () {
+                    return action.call(navigate, controller, function (ctrl) {
+                        var io = (Controller.io || ctrl.context)
+                            	.$$provide([Navigation, new Navigation({
+                            controller: ctrl,
+                            action:     key,
+                            args:       Array.prototype.slice.call(arguments)
+                        })]);
+                        Controller.bindIO(io, ctrl);
+                        return ctrl[key].apply(ctrl, arguments);
+                    });
+                };
+            });
+        } while (obj = Object.getPrototypeOf(obj) && obj instanceof Controller);
+        return trampoline;
+    }
 
     /**
      * Represents the failure to resolve a `controller`.
@@ -9903,6 +9912,9 @@ new function () { // closure
                         Controller.io = ctx === context ? composer
                                   : ctx.$self().next(composer);
                         return action(ctrl);
+                    } catch (exception) {
+                        var io = ctrl.io || ctrl.context || Controller.io;
+                        return Errors(io).handleException(exception);
                     } finally {
                         if (oldIO) {
                             Controller.io = oldIO;
@@ -9913,23 +9925,6 @@ new function () { // closure
                 });
         }
     });
-
-    function _bindIo(io) {
-        if (!io) { return; }
-        io = _assemble(io, globalPrepare, this);
-        if (globalExecute.length === 0) {
-            this.io = io;
-            return;
-        }
-        var controller = this,
-            executor   = this.io = io.decorate({
-            toDelegate: function () {
-                var ex = _assemble(this, globalExecute, controller);
-                delete executor.toDelegate;
-                return ex.toDelegate();
-            }
-        });
-    }
     
     function _assemble(handler, builders, context) {
         return handler && builders
@@ -10420,6 +10415,7 @@ new function () { // closure
                 execute  = function (ctrl) {
                     var property = this.selectActionMethod(ctrl, action),
                         method   = property && ctrl[property];
+                    Controller.bindIO(Controller.io || ctrl.ctx, ctrl);
                     return $isFunction(method) ? method.call(ctrl, params)
                          : Promise.reject(new Error(format(
                              "%1 missing action '%2' for route '%3'",
