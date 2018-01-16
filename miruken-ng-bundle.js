@@ -7220,7 +7220,7 @@ new function () { // closure
      */
     base2.package(this, {
         name:    "miruken",
-        version: "2.0.12",
+        version: "2.0.13",
         exports: "Enum,Flags,Variance,Protocol,StrictProtocol,Delegate,Miruken,MetaStep,MetaMacro," +
                  "Initializing,Disposing,DisposingMixin,Resolving,Invoking,Parenting,Starting,Startup," +
                  "Facet,Interceptor,InterceptorSelector,ProxyBuilder,Modifier,ArrayManager,IndexedList," +
@@ -9778,6 +9778,20 @@ new function () { // closure
                  ? miruken.mvc.ViewRegion(handler).show(view)
                  : miruken.mvc.ViewRegion(io).show(handler);
         },
+        next: function (controller, handler) {
+            if (!(controller.prototype instanceof Controller)) {
+                throw new TypeError(format("%1 is not a Controller", controller));
+            }
+            var io = handler || this.io || this.context;            
+            return createTrampoline(controller, io, 'next');
+        },
+        push: function (controller, handler) {
+            if (!(controller.prototype instanceof Controller)) {
+                throw new TypeError(format("%1 is not a Controller", controller));
+            }
+            var io = handler || this.io || this.context;
+            return createTrampoline(controller, io, 'next');
+        },                                                
         validate: function (target, scope) {
             return _validate.call(this, target, "validate", scope);
         },
@@ -9836,15 +9850,16 @@ new function () { // closure
                     return;
                 }
                 trampoline[key] = function () {
+                    var args = Array.prototype.slice.call(arguments);
                     return action.call(navigate, controller, function (ctrl) {
                         var io = (Controller.io || ctrl.context)
                             	.$$provide([Navigation, new Navigation({
                             controller: ctrl,
                             action:     key,
-                            args:       Array.prototype.slice.call(arguments)
+                            args:       args
                         })]);
                         Controller.bindIO(io, ctrl);
-                        return ctrl[key].apply(ctrl, arguments);
+                        return ctrl[key].apply(ctrl, args);
                     });
                 };
             });
