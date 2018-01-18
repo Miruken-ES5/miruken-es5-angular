@@ -7220,7 +7220,7 @@ new function () { // closure
      */
     base2.package(this, {
         name:    "miruken",
-        version: "2.0.13",
+        version: "2.0.14",
         exports: "Enum,Flags,Variance,Protocol,StrictProtocol,Delegate,Miruken,MetaStep,MetaMacro," +
                  "Initializing,Disposing,DisposingMixin,Resolving,Invoking,Parenting,Starting,Startup," +
                  "Facet,Interceptor,InterceptorSelector,ProxyBuilder,Modifier,ArrayManager,IndexedList," +
@@ -9766,9 +9766,8 @@ new function () { // closure
      * @uses miruken.validate.$validateThat
      * @uses miruken.validate.Validating
      */
-    var Controller = CallbackHandler.extend($contextual,
-                                            $validateThat, Validating,
-                                            DisposingMixin, {
+    var Controller = CallbackHandler.extend(DisposingMixin, $contextual,
+                                            $validateThat, Validating, {
         get ifValid() {
             return this.io.$validAsync(this);
         },
@@ -9815,8 +9814,7 @@ new function () { // closure
             };
         },
         bindIO: function (io, controller) {
-            if (!io) { return; }
-            io = _assemble(io, globalPrepare, controller);
+            io = _assemble(io || controller.context, globalPrepare, controller);
             if (globalExecute.length === 0) {
                 this.io = io;
                 return;
@@ -9852,12 +9850,13 @@ new function () { // closure
                 trampoline[key] = function () {
                     var args = Array.prototype.slice.call(arguments);
                     return action.call(navigate, controller, function (ctrl) {
-                        var io = (Controller.io || ctrl.context)
-                            	.$$provide([Navigation, new Navigation({
-                            controller: ctrl,
-                            action:     key,
-                            args:       args
-                        })]);
+                        var io = (action == "next" ? source
+                                  : ctrl.context.$self().next(source))
+                               .$$provide([Navigation, new Navigation({
+                                   controller: ctrl,
+                                   action:     key,
+                                   args:       args
+                               })]);
                         Controller.bindIO(io, ctrl);
                         return ctrl[key].apply(ctrl, args);
                     });
@@ -9911,7 +9910,6 @@ new function () { // closure
                 initiator = composer.resolve(Controller),
                 ctx       = push ? context.newChild() : context;
 
-            var oldIO = Controller.io;
             return Promise.resolve(ctx.resolve(controller))
                 .then(function (ctrl) {
                     if (!ctrl) {
@@ -9924,18 +9922,10 @@ new function () { // closure
                                    (initiator.context == ctx)) {
                             initiator.context = null;
                         }
-                        Controller.io = ctx === context ? composer
-                                  : ctx.$self().next(composer);
                         return action(ctrl);
                     } catch (exception) {
-                        var io = ctrl.io || ctrl.context || Controller.io;
+                        var io = ctrl.io || ctrl.context;
                         return Errors(io).handleException(exception);
-                    } finally {
-                        if (oldIO) {
-                            Controller.io = oldIO;
-                        } else {
-                            delete Controller.io;
-                        }
                     }
                 });
         }
@@ -10430,7 +10420,7 @@ new function () { // closure
                 execute  = function (ctrl) {
                     var property = this.selectActionMethod(ctrl, action),
                         method   = property && ctrl[property];
-                    Controller.bindIO(Controller.io || ctrl.ctx, ctrl);
+                    Controller.bindIO(ctrl.context, ctrl);
                     return $isFunction(method) ? method.call(ctrl, params)
                          : Promise.reject(new Error(format(
                              "%1 missing action '%2' for route '%3'",
