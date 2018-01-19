@@ -753,7 +753,7 @@ new function () { // closure
             prefix = prefix + ".";
             this.extend({
                 handleRoute: function (route) {
-                    $state.go(route.name, route.params, { notify: false });
+                    $state.go(route.name, route.params);
                     return this.base(route)
                 },
                 followNavigation: function (navigation) {
@@ -7220,7 +7220,7 @@ new function () { // closure
      */
     base2.package(this, {
         name:    "miruken",
-        version: "2.0.14",
+        version: "2.0.15",
         exports: "Enum,Flags,Variance,Protocol,StrictProtocol,Delegate,Miruken,MetaStep,MetaMacro," +
                  "Initializing,Disposing,DisposingMixin,Resolving,Invoking,Parenting,Starting,Startup," +
                  "Facet,Interceptor,InterceptorSelector,ProxyBuilder,Modifier,ArrayManager,IndexedList," +
