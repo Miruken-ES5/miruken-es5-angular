@@ -7221,7 +7221,7 @@ new function () { // closure
      */
     base2.package(this, {
         name:    "miruken",
-        version: "2.0.17",
+        version: "2.0.18",
         exports: "Enum,Flags,Variance,Protocol,StrictProtocol,Delegate,Miruken,MetaStep,MetaMacro," +
                  "Initializing,Disposing,DisposingMixin,Resolving,Invoking,Parenting,Starting,Startup," +
                  "Facet,Interceptor,InterceptorSelector,ProxyBuilder,Modifier,ArrayManager,IndexedList," +
@@ -9810,8 +9810,12 @@ new function () { // closure
         },
         bindIO: function (io, controller) {
             io = _assemble(io || controller.context, globalPrepare, controller);
+            if (io == null) {
+                delete controller.io;
+                return;
+            }
             if (globalExecute.length === 0) {
-                this.io = io;
+                controller.io = io;
                 return;
             }
             var executor   = controller.io = io.decorate({
@@ -9920,10 +9924,10 @@ new function () { // closure
                                    (initiator.context == ctx)) {
                             initiator.context = null;
                         }
+                        Controller.bindIO(composer, ctrl);                        
                         return action(ctrl);
                     } catch (exception) {
-                        var io = ctrl.io || ctrl.context;
-                        return Errors(io).handleException(exception);
+                        return Errors(ctrl.io).handleException(exception);
                     } finally {
                         Controller.bindIO(null, ctrl);
                     }
@@ -10437,11 +10441,15 @@ new function () { // closure
                 controllerKey = this.expandControllerKey(controller);
 
             return navigate.next(controllerKey, execute)
-                .catch (function (err) {
-                    return (err instanceof ControllerNotFound)
-                        && (controllerKey !== controller)
-                         ? navigate.to(controller, execute)
-                         : Router(composer).rejectRoute(route, err);
+                .catch(function (err) {
+                    if ((err instanceof ControllerNotFound) &&
+                        (controllerKey !== controller)) {
+                        return navigate.next(controller, execute)
+                        	.catch(function (err) {
+                                return Router(composer).rejectRoute(route, err);                                
+                            });
+                    }
+                    return Router(composer).rejectRoute(route, err);
                 });
         },
         rejectRoute: function (route, error) {
