@@ -777,6 +777,9 @@ new function () { // closure
                 }
             });
         },
+        rejectRoute: function (route, error) {
+            return Errors($composer).handleError(error, "ui-router");
+        },        
         matchesRoute: function (navigation, url, params) {
             var urlParams = url.params,
                 navAction = navigation.action.toLowerCase(),
@@ -821,7 +824,7 @@ new function () { // closure
                 var urlKey = urlKeys[i];
                 if (!(urlKey in params)) {
                     if (args && (urlKey in args)) {
-                        params[urlKey] = args[urlKey];                        
+                        params[urlKey] = args[urlKey];
                     } else {
                         return false;
                     }
@@ -852,10 +855,7 @@ new function () { // closure
                             locals = [Route, route];
                         
                         var ctx = context.$$provide(locals);
-                        Routing(ctx.unwind()).handleRoute(route)
-                            .catch(function (err) {
-                                Errors(ctx).handleError(err, "ui-router");
-                            });
+                        Routing(ctx.unwind()).handleRoute(route);
                     });
                     if ($isFunction(created)) {
                         created(router);                 
@@ -7221,7 +7221,7 @@ new function () { // closure
      */
     base2.package(this, {
         name:    "miruken",
-        version: "2.0.16",
+        version: "2.0.17",
         exports: "Enum,Flags,Variance,Protocol,StrictProtocol,Delegate,Miruken,MetaStep,MetaMacro," +
                  "Initializing,Disposing,DisposingMixin,Resolving,Invoking,Parenting,Starting,Startup," +
                  "Facet,Interceptor,InterceptorSelector,ProxyBuilder,Modifier,ArrayManager,IndexedList," +
@@ -9779,16 +9779,10 @@ new function () { // closure
                  : miruken.mvc.ViewRegion(io).show(handler);
         },
         next: function (controller, handler) {
-            if (!(controller.prototype instanceof Controller)) {
-                throw new TypeError(format("%1 is not a Controller", controller));
-            }
             var io = handler || this.io || this.context;            
             return createTrampoline(controller, io, 'next');
         },
         push: function (controller, handler) {
-            if (!(controller.prototype instanceof Controller)) {
-                throw new TypeError(format("%1 is not a Controller", controller));
-            }
             var io = handler || this.io || this.context;
             return createTrampoline(controller, io, 'next');
         },                                                
@@ -9835,6 +9829,9 @@ new function () { // closure
     var IGNORE_TRAMPOLINE = [ "base", "constructor", "initialize", "dispose" ];
 
     function createTrampoline(controller, source, action) {
+        if (!(controller.prototype instanceof Controller)) {
+            throw new TypeError(format("%1 is not a Controller", controller));
+        }        
         var trampoline = {},
             navigate   = Navigate(source),
             obj        = controller.prototype;
@@ -10382,9 +10379,9 @@ new function () { // closure
     var Routing = StrictProtocol.extend({
         /**
          * Handles to the specified `route`.
-         * @method routeTo
+         * @method handleRoute
          * @param    {miruken.mvc.Route}  route  -  route
-         * @returns  {Promise} navigation promise.
+         * @returns  {Promise} promise.
          */
         handleRoute: function (route) {},
         /**
@@ -10392,7 +10389,15 @@ new function () { // closure
          * @method followNavigation
          * @param    {miruken.mvc.Navigation}  navigation  -  navigation
          */
-        followNavigation: function (navigation) {}
+        followNavigation: function (navigation) {},
+        /**
+         * Handles to the rejected `route`.
+         * @method rejectRoute
+         * @param    {miruken.mvc.Route}  route  -  route
+         * @param    {Error}              error  -  error
+         * @returns  {Promise} promise.
+         */
+        rejectRoute: function (route, error) {}
     });
 
     var controllerKeyRegExp = /(.*)controller$/i;
@@ -10436,8 +10441,11 @@ new function () { // closure
                     return (err instanceof ControllerNotFound)
                         && (controllerKey !== controller)
                          ? navigate.to(controller, execute)
-                         : Promise.reject(err);
+                         : Router(composer).rejectRoute(route, err);
                 });
+        },
+        rejectRoute: function (route, error) {
+            return Promise.reject(error);
         },
         extractControllerKey: function (controller) {
             var matches = controller.match && controller.match(controllerKeyRegExp);
