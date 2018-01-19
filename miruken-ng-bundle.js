@@ -747,7 +747,7 @@ new function () { // closure
      * @class UiRouter
      * @extends Router
      */
-    var UiRouter = Router.extend(context.$contextual, $inheritStatic, {
+    var UiRouter = Router.extend(context.$contextual, {
         constructor: function (prefix, $state, $urlMatcherFactory) {
             var _urls = {};            
             prefix = prefix + ".";
@@ -842,6 +842,7 @@ new function () { // closure
                         router  = clazz.new.call(clazz, prefix, $state, $urlMatcherFactory);
                     router.context = context;
                     context.addHandlers(router);
+                    new Controller().context = context;  // dummy controller
                     $scope.$on("$stateChangeSuccess", function (event, toState, toParams) {
                         var route = new Route({
                                 name:    toState.name,
@@ -7220,7 +7221,7 @@ new function () { // closure
      */
     base2.package(this, {
         name:    "miruken",
-        version: "2.0.15",
+        version: "2.0.16",
         exports: "Enum,Flags,Variance,Protocol,StrictProtocol,Delegate,Miruken,MetaStep,MetaMacro," +
                  "Initializing,Disposing,DisposingMixin,Resolving,Invoking,Parenting,Starting,Startup," +
                  "Facet,Interceptor,InterceptorSelector,ProxyBuilder,Modifier,ArrayManager,IndexedList," +
@@ -9926,6 +9927,8 @@ new function () { // closure
                     } catch (exception) {
                         var io = ctrl.io || ctrl.context;
                         return Errors(io).handleException(exception);
+                    } finally {
+                        Controller.bindIO(null, ctrl);
                     }
                 });
         }
@@ -10401,7 +10404,7 @@ new function () { // closure
      * @extends Base
      * @uses miruken.mvc.Routing
      */    
-    var Router = Base.extend(Routing, {
+    var Router = Base.extend(Routing, $inheritStatic, {
         handleRoute: function (route) {
             var name   = route.name,
                 params = route.params;
@@ -10416,11 +10419,11 @@ new function () { // closure
             }
             var composer = global.$composer,
                 navigate = Navigate(composer),
-                action   = params.action || "index",
+                action   = params.action || (params.action = "index"),
                 execute  = function (ctrl) {
                     var property = this.selectActionMethod(ctrl, action),
                         method   = property && ctrl[property];
-                    Controller.bindIO(ctrl.context, ctrl);
+                    Controller.bindIO(composer, ctrl);
                     return $isFunction(method) ? method.call(ctrl, params)
                          : Promise.reject(new Error(format(
                              "%1 missing action '%2' for route '%3'",
