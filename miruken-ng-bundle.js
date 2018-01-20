@@ -7221,7 +7221,7 @@ new function () { // closure
      */
     base2.package(this, {
         name:    "miruken",
-        version: "2.0.18",
+        version: "2.0.19",
         exports: "Enum,Flags,Variance,Protocol,StrictProtocol,Delegate,Miruken,MetaStep,MetaMacro," +
                  "Initializing,Disposing,DisposingMixin,Resolving,Invoking,Parenting,Starting,Startup," +
                  "Facet,Interceptor,InterceptorSelector,ProxyBuilder,Modifier,ArrayManager,IndexedList," +
@@ -10446,10 +10446,10 @@ new function () { // closure
                         (controllerKey !== controller)) {
                         return navigate.next(controller, execute)
                         	.catch(function (err) {
-                                return Router(composer).rejectRoute(route, err);                                
+                                return Routing(composer).rejectRoute(route, err);                                
                             });
                     }
-                    return Router(composer).rejectRoute(route, err);
+                    return Routing(composer).rejectRoute(route, err);
                 });
         },
         rejectRoute: function (route, error) {
