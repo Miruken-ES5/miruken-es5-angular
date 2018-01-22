@@ -598,7 +598,7 @@ new function () { // closure
                     
                     function renderTemplate(template) {
                         var modal = policy.modal,
-                            push  = modal || _layers.length === 0 || policy.push;
+                            push  = modal || policy.push || _layers.length === 0;
                         
                         if (push) {
                             var Layer = Base.extend(ViewLayer, DisposingMixin, {
@@ -753,8 +753,10 @@ new function () { // closure
             prefix = prefix + ".";
             this.extend({
                 handleRoute: function (route) {
-                    $state.go(route.name, route.params);
-                    return this.base(route)
+                    return this.base(route).then(function (result) {
+                        $state.go(route.name, route.params);
+                        return result;
+                    });
                 },
                 followNavigation: function (navigation) {
                     var states = $state.get();
@@ -7221,7 +7223,7 @@ new function () { // closure
      */
     base2.package(this, {
         name:    "miruken",
-        version: "2.0.19",
+        version: "2.0.20",
         exports: "Enum,Flags,Variance,Protocol,StrictProtocol,Delegate,Miruken,MetaStep,MetaMacro," +
                  "Initializing,Disposing,DisposingMixin,Resolving,Invoking,Parenting,Starting,Startup," +
                  "Facet,Interceptor,InterceptorSelector,ProxyBuilder,Modifier,ArrayManager,IndexedList," +
@@ -10393,15 +10395,7 @@ new function () { // closure
          * @method followNavigation
          * @param    {miruken.mvc.Navigation}  navigation  -  navigation
          */
-        followNavigation: function (navigation) {},
-        /**
-         * Handles to the rejected `route`.
-         * @method rejectRoute
-         * @param    {miruken.mvc.Route}  route  -  route
-         * @param    {Error}              error  -  error
-         * @returns  {Promise} promise.
-         */
-        rejectRoute: function (route, error) {}
+        followNavigation: function (navigation) {}
     });
 
     var controllerKeyRegExp = /(.*)controller$/i;
@@ -10417,14 +10411,19 @@ new function () { // closure
         handleRoute: function (route) {
             var name   = route.name,
                 params = route.params;
-            if (params == null) {
-                return Promise.reject(new Error(format(
-                    "Missing params route '%1'", name)));
-            }
-            var controller = params.controller;
-            if (controller == null) {
-                return Promise.reject(new Error(format(
-                    "Missing controller for route '%1'", name)));
+            try {
+                if (params == null) {
+                    throw new Error(format(
+                        "Missing params route '%1'", name));
+                }
+                var controller = params.controller;
+                if (controller == null) {
+                    throw new Error(format(
+                        "Missing controller for route '%1'", name));
+                }
+                this.validateRoute(route);
+            } catch (ex) {
+                return rejectRoute.call(this, route, ex);
             }
             var composer = global.$composer,
                 navigate = Navigate(composer),
@@ -10440,18 +10439,20 @@ new function () { // closure
                 }.bind(this),
                 controllerKey = this.expandControllerKey(controller);
 
+            var self = this;
             return navigate.next(controllerKey, execute)
                 .catch(function (err) {
                     if ((err instanceof ControllerNotFound) &&
                         (controllerKey !== controller)) {
                         return navigate.next(controller, execute)
                         	.catch(function (err) {
-                                return Routing(composer).rejectRoute(route, err);                                
+                                return rejectRoute.call(self, route, ex);
                             });
                     }
-                    return Routing(composer).rejectRoute(route, err);
+                    return rejectRoute.call(self, route, ex);
                 });
         },
+        validateRoute: function (route) {},
         rejectRoute: function (route, error) {
             return Promise.reject(error);
         },
@@ -10474,6 +10475,14 @@ new function () { // closure
             }
         }
     });
+
+    function rejectRoute(route, error) {
+        try {
+            return Promise.resolve(this.rejectRoute(route, error));
+        } catch (err) {
+            return Promise.reject(err);
+        }
+    }
     
     eval(this.exports);
     
