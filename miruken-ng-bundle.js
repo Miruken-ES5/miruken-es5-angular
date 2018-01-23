@@ -609,13 +609,15 @@ new function () { // closure
                                     var content = this._expandTemplate(template, controller);
                                     if (modal) {
                                         var provider     = modal.style || ModalProviding,
-                                            modalContext = this._layerScope.context,
+                                            modalScope   = this._layerScope,
+                                            modalContext = modalScope.context,
                                             modalResult  = provider(composer)
                                                 .showModal(container, content, modal, modalContext);
+                                        modalContext.onEnding(this.dispose.bind(this));
                                         return Promise.resolve($decorate(this, {
                                             modalResult: modalResult
                                         }));
-                                    }                                    
+                                    }                             
                                     return $timeout(function () {
                                         if (this._content) {
                                             this._content.replaceWith(content);
@@ -753,10 +755,8 @@ new function () { // closure
             prefix = prefix + ".";
             this.extend({
                 handleRoute: function (route) {
-                    return this.base(route).then(function (result) {
-                        $state.go(route.name, route.params);
-                        return result;
-                    });
+                    $state.go(route.name, route.params);
+                    return this.base(route);
                 },
                 followNavigation: function (navigation) {
                     var states = $state.get();
@@ -7223,7 +7223,7 @@ new function () { // closure
      */
     base2.package(this, {
         name:    "miruken",
-        version: "2.0.20",
+        version: "2.0.21",
         exports: "Enum,Flags,Variance,Protocol,StrictProtocol,Delegate,Miruken,MetaStep,MetaMacro," +
                  "Initializing,Disposing,DisposingMixin,Resolving,Invoking,Parenting,Starting,Startup," +
                  "Facet,Interceptor,InterceptorSelector,ProxyBuilder,Modifier,ArrayManager,IndexedList," +
@@ -10446,10 +10446,10 @@ new function () { // closure
                         (controllerKey !== controller)) {
                         return navigate.next(controller, execute)
                         	.catch(function (err) {
-                                return rejectRoute.call(self, route, ex);
+                                return rejectRoute.call(self, route, err);
                             });
                     }
-                    return rejectRoute.call(self, route, ex);
+                    return rejectRoute.call(self, route, err);
                 });
         },
         validateRoute: function (route) {},
