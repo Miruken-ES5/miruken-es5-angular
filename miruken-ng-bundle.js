@@ -7223,7 +7223,7 @@ new function () { // closure
      */
     base2.package(this, {
         name:    "miruken",
-        version: "2.0.22",
+        version: "2.0.23",
         exports: "Enum,Flags,Variance,Protocol,StrictProtocol,Delegate,Miruken,MetaStep,MetaMacro," +
                  "Initializing,Disposing,DisposingMixin,Resolving,Invoking,Parenting,Starting,Startup," +
                  "Facet,Interceptor,InterceptorSelector,ProxyBuilder,Modifier,ArrayManager,IndexedList," +
@@ -10429,7 +10429,7 @@ new function () { // closure
                 }
                 this.validateRoute(route);
             } catch (ex) {
-                return rejectRoute.call(this, route, ex);
+                return _rejectRoute.call(this, route, ex);
             }
             var composer = global.$composer,
                 navigate = Navigate(composer),
@@ -10451,10 +10451,10 @@ new function () { // closure
                         (controllerKey !== controller)) {
                         return navigate.next(controller, execute)
                         	.catch(function (err) {
-                                return rejectRoute.call(self, route, err);
+                                return _rejectRoute.call(self, route, err);
                             });
                     }
-                    return rejectRoute.call(self, route, err);
+                    return _rejectRoute.call(self, route, err);
                 });
         },
         validateRoute: function (route) {},
