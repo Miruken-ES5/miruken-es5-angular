@@ -7223,7 +7223,7 @@ new function () { // closure
      */
     base2.package(this, {
         name:    "miruken",
-        version: "2.0.21",
+        version: "2.0.22",
         exports: "Enum,Flags,Variance,Protocol,StrictProtocol,Delegate,Miruken,MetaStep,MetaMacro," +
                  "Initializing,Disposing,DisposingMixin,Resolving,Invoking,Parenting,Starting,Startup," +
                  "Facet,Interceptor,InterceptorSelector,ProxyBuilder,Modifier,ArrayManager,IndexedList," +
@@ -9745,19 +9745,21 @@ new function () { // closure
         /**
          * Transitions to next `action` on `controller`.
          * @method next
-         * @param   {Any}       controller  -  controller key
-         * @param   {Function}  action      -  controller action
+         * @param   {Any}       controller     -  controller key
+         * @param   {Function}  action         -  controller action
+         * @param   {Function}  [configureIO]  -  configures io
          * @returns {Promise} promise when transition complete.
          */        
-        next: function (controller, action) {},
+        next: function (controller, action, configureIO) {},
         /**
          * Transitions to next `action` on `controller` in a new context.
          * @method to
-         * @param   {Any}       controller  -  controller key
-         * @param   {Function}  action      -  controller action
+         * @param   {Any}       controller    -  controller key
+         * @param   {Function}  action        -  controller action
+         * @param   {Function}  [confgureIO]  -  configures io
          * @returns {Promise} promise when transition complete.
          */        
-        push: function (controller, action) {}        
+        push: function (controller, action, configureIO) {}        
     });
 
     /**
@@ -9810,29 +9812,11 @@ new function () { // closure
                 }
             };
         },
-        bindIO: function (io, controller) {
-            io = _assemble(io || controller.context, globalPrepare, controller);
-            if (io == null) {
-                delete controller.io;
-                return;
-            }
-            if (globalExecute.length === 0) {
-                controller.io = io;
-                return;
-            }
-            var executor   = controller.io = io.decorate({
-                toDelegate: function () {
-                    var ex = _assemble(this, globalExecute, controller);
-                    delete executor.toDelegate;
-                    return ex.toDelegate();
-                }
-            });
-        },        
         get prepare() { return globalPrepare; },
         get execute() { return globalExecute; }        
     });
 
-    var IGNORE_TRAMPOLINE = [ "base", "constructor", "initialize", "dispose" ];
+    var TRAMPOLINE_IGNORE = [ "base", "constructor", "initialize", "dispose" ];
 
     function createTrampoline(controller, source, action) {
         if (!(controller.prototype instanceof Controller)) {
@@ -9844,9 +9828,9 @@ new function () { // closure
         action = navigate[action];
         do {
             Array2.forEach(Object.getOwnPropertyNames(obj), function (key) {
-                if (IGNORE_TRAMPOLINE.indexOf(key) >= 0 || (key in trampoline))  {
-                    return;
-                }
+                if (TRAMPOLINE_IGNORE.indexOf(key) >= 0 ||
+                    key.lastIndexOf("_", 0) === 0 ||
+                    (key in trampoline)) { return; }
                 var descriptor = Object.getOwnPropertyDescriptor(obj, key);
                 if (descriptor == null || !$isFunction(descriptor.value)) {
                     return;
@@ -9854,15 +9838,13 @@ new function () { // closure
                 trampoline[key] = function () {
                     var args = Array.prototype.slice.call(arguments);
                     return action.call(navigate, controller, function (ctrl) {
-                        var io = (action == "next" ? source
-                                  : ctrl.context.$self().next(source))
-                               .$$provide([Navigation, new Navigation({
-                                   controller: ctrl,
-                                   action:     key,
-                                   args:       args
-                               })]);
-                        Controller.bindIO(io, ctrl);
                         return ctrl[key].apply(ctrl, args);
+                    }, function (io, ctrl) {
+                        return io.$$provide([Navigation, new Navigation({
+                            controller: ctrl,
+                            action:     key,
+                            args:       args
+                        })]);
                     });
                 };
             });
@@ -9898,13 +9880,13 @@ new function () { // closure
      * @uses miruken.mvc.Navigate
      */    
     var NavigateCallbackHandler = CompositeCallbackHandler.extend(Navigate, {
-        next: function (controller, action) {
-            return this.to(controller, action, false);
+        next: function (controller, action, configureIO) {
+            return this.to(controller, action, false, configureIO);
         },
-        push: function (controller, action) {
-            return this.to(controller, action, true);            
+        push: function (controller, action, configureIO) {
+            return this.to(controller, action, true, configureIO);
         },        
-        to: function (controller, action, push) {
+        to: function (controller, action, push, configureIO) {
             if (action == null) {
                 return Promise.reject(new Error("Missing action"));
             };
@@ -9926,17 +9908,41 @@ new function () { // closure
                                    (initiator.context == ctx)) {
                             initiator.context = null;
                         }
-                        Controller.bindIO(composer, ctrl);                        
+                        var io = ctx === context ? composer
+                               : ctx.$self().next(composer);
+                        if ($isFunction(configureIO)) {
+                            io = configureIO(io, ctrl) || io;
+                        }
+                        _bindIO(io, ctrl);                        
                         return action(ctrl);
                     } catch (exception) {
                         return Errors(ctrl.io).handleException(exception);
                     } finally {
-                        Controller.bindIO(null, ctrl);
+                        _bindIO(null, ctrl);
                     }
                 });
         }
     });
-    
+
+    function _bindIO(io, controller) {
+        io = _assemble(io || controller.context, globalPrepare, controller);
+        if (io == null) {
+            delete controller.io;
+            return;
+        }
+        if (globalExecute.length === 0) {
+            controller.io = io;
+            return;
+        }
+        var executor   = controller.io = io.decorate({
+            toDelegate: function () {
+                var ex = _assemble(this, globalExecute, controller);
+                delete executor.toDelegate;
+                return ex.toDelegate();
+            }
+        });
+    }
+
     function _assemble(handler, builders, context) {
         return handler && builders
              ?  builders.reduce(function (result, builder) {
@@ -10431,7 +10437,6 @@ new function () { // closure
                 execute  = function (ctrl) {
                     var property = this.selectActionMethod(ctrl, action),
                         method   = property && ctrl[property];
-                    Controller.bindIO(composer, ctrl);
                     return $isFunction(method) ? method.call(ctrl, params)
                          : Promise.reject(new Error(format(
                              "%1 missing action '%2' for route '%3'",
@@ -10476,7 +10481,7 @@ new function () { // closure
         }
     });
 
-    function rejectRoute(route, error) {
+    function _rejectRoute(route, error) {
         try {
             return Promise.resolve(this.rejectRoute(route, error));
         } catch (err) {
