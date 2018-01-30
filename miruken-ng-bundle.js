@@ -7223,7 +7223,7 @@ new function () { // closure
      */
     base2.package(this, {
         name:    "miruken",
-        version: "2.0.23",
+        version: "2.0.24",
         exports: "Enum,Flags,Variance,Protocol,StrictProtocol,Delegate,Miruken,MetaStep,MetaMacro," +
                  "Initializing,Disposing,DisposingMixin,Resolving,Invoking,Parenting,Starting,Startup," +
                  "Facet,Interceptor,InterceptorSelector,ProxyBuilder,Modifier,ArrayManager,IndexedList," +
@@ -9731,6 +9731,7 @@ new function () { // closure
      * @extends Base
      */        
     var Navigation = Base.extend({
+        push:       undefined,
         controller: undefined,
         action:     undefined,
         args:       undefined
@@ -9771,8 +9772,9 @@ new function () { // closure
      * @uses miruken.validate.$validateThat
      * @uses miruken.validate.Validating
      */
-    var Controller = CallbackHandler.extend(DisposingMixin, $contextual,
-                                            $validateThat, Validating, {
+    var Controller = CallbackHandler.extend(
+        DisposingMixin, Validating, $contextual, $validateThat, {
+            
         get ifValid() {
             return this.io.$validAsync(this);
         },
@@ -9784,11 +9786,11 @@ new function () { // closure
         },
         next: function (controller, handler) {
             var io = handler || this.io || this.context;            
-            return createTrampoline(controller, io, 'next');
+            return createTrampoline(controller, io, "next");
         },
         push: function (controller, handler) {
             var io = handler || this.io || this.context;
-            return createTrampoline(controller, io, 'next');
+            return createTrampoline(controller, io, "push");
         },                                                
         validate: function (target, scope) {
             return _validate.call(this, target, "validate", scope);
@@ -9805,10 +9807,10 @@ new function () { // closure
             var controller = this;
             return {
                 get next() {
-                    return createTrampoline(controller, source, 'next');
+                    return createTrampoline(controller, source, "next");
                 },
                 get push() {
-                    return createTrampoline(controller, source, 'push');
+                    return createTrampoline(controller, source, "push");
                 }
             };
         },
@@ -9841,6 +9843,7 @@ new function () { // closure
                         return ctrl[key].apply(ctrl, args);
                     }, function (io, ctrl) {
                         return io.$$provide([Navigation, new Navigation({
+                            push:       action === "push",
                             controller: ctrl,
                             action:     key,
                             args:       args
@@ -11126,7 +11129,8 @@ new function () { // closure
     miruken.package(this, {
         name:    "validate",
         imports: "miruken,miruken.callback,miruken.validate",
-        exports: "ValidationRegistry,ValidateJsCallbackHandler,$required,$nested"
+        exports: "ValidationRegistry,ValidateJsCallbackHandler," +
+                 "$required,$notEmpty,$nested"
     });
 
     eval(this.imports);
@@ -11142,7 +11146,14 @@ new function () { // closure
          * @readOnly
          * @for miruken.validate.$ 
          */
-        $required = Object.freeze({ presence: true }),
+        $required = Object.freeze({ presence: true }), 
+        /**
+         * Shortcut to indicate not empty property.
+         * @property {Object} $notEmpty
+         * @readOnly
+         * @for miruken.validate.$ 
+         */
+        $notEmpty = Object.freeze({ presence: { allowEmpty: false } }),       
         /**
          * Shortcut to indicate nested validation.
          * @property {Object} $nested
