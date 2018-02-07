@@ -1,19 +1,14 @@
 (function e(t,n,r){function s(o,u){if(!n[o]){if(!t[o]){var a=typeof require=="function"&&require;if(!u&&a)return a(o,!0);if(i)return i(o,!0);var f=new Error("Cannot find module '"+o+"'");throw f.code="MODULE_NOT_FOUND",f}var l=n[o]={exports:{}};t[o][0].call(l.exports,function(e){var n=t[o][1][e];return s(n?n:e)},l,l.exports,e,t,n,r)}return n[o].exports}var i=typeof require=="function"&&require;for(var o=0;o<r.length;o++)s(r[o]);return s})({1:[function(require,module,exports){
 module.exports = require('./ng.js');
-require('./region.js');
-require('./route.js');
-
-
-},{"./ng.js":2,"./region.js":3,"./route.js":4}],2:[function(require,module,exports){
+},{"./ng.js":2}],2:[function(require,module,exports){
 (function (global){
 var miruken = require('../miruken');
               require('../ioc');
               require('../mvc');
-              require('../error');
 
 new function () { // closure
 
-    if (typeof angular === "undefined") {
+    if (typeof angular === 'undefined') {
         throw new Error("angular not found.  Did you forget to include angular.js first?");
     }
 
@@ -23,48 +18,36 @@ new function () { // closure
      * {{#crossLinkModule "callback"}}{{/crossLinkModule}},
      * {{#crossLinkModule "context"}}{{/crossLinkModule}},
      * {{#crossLinkModule "validate"}}{{/crossLinkModule}},
+     * {{#crossLinkModule "error"}}{{/crossLinkModule}} and
      * {{#crossLinkModule "ioc"}}{{/crossLinkModule}} modules.
-     * {{#crossLinkModule "error"}}{{/crossLinkModule}} modules.
      * @module miruken
      * @submodule ng
      * @namespace miruken.ng
      */
-    miruken.package(this, {
+    var ng = new base2.Package(this, {
         name:    "ng",
-        imports: "miruken,miruken.callback,miruken.context," +
-            	 "miruken.validate,miruken.ioc,miruken.mvc",
-        exports: "Runner,Directive,Filter,DynamicControllerDirective," +
-                 "UseModelValidation,DigitsOnly,InhibitFocus,TrustFilter," +
-                 "$appContext,$envContext,$rootContext"
+        version: miruken.version,   
+        parent:  miruken,
+        imports: "miruken,miruken.callback,miruken.context,miruken.validate,miruken.ioc,miruken.mvc",
+        exports: "Runner,Directive,Filter,RegionDirective,PartialView,UseModelValidation,DigitsOnly,InhibitFocus,$rootContext"
     });
 
     eval(this.imports);
 
-    var $appContext   = new Context,
-        $envContext   = $appContext.newChild(),
-        $rootContext  = $envContext.newChild(),
-        appContainer  = new IoContainer,
-        mirukenModule = angular.module("miruken.ng", []);
+    var $rootContext  = new Context,
+        rootContainer = new IoContainer;
 
-    mirukenModule.constant("$appContext",  $appContext);
-    mirukenModule.constant("$envContext",  $envContext);                
-    mirukenModule.constant("$rootContext", $rootContext);
-    Object.defineProperty(this.package, "ngModule", { value: mirukenModule });
-    
-    $appContext.addHandlers(appContainer,
-                            new NavigateCallbackHandler(),
-                            new miruken.validate.ValidationCallbackHandler,
-                            new miruken.validate.ValidateJsCallbackHandler,
-                            new miruken.error.ErrorCallbackHandler);
-    
-    angular.module("ng").run(["$rootElement", "$rootScope", "$injector",
-                              "$templateRequest", "$compile", "$q", "$timeout",
-        function ($rootElement, $rootScope, $injector, $templates, $compile, $q, $timeout) {
+    $rootContext.addHandlers(rootContainer, 
+                             new miruken.validate.ValidationCallbackHandler,
+                             new miruken.validate.ValidateJsCallbackHandler,
+                             new miruken.error.ErrorCallbackHandler);
+
+    angular.module('ng').run(['$rootElement', '$rootScope', '$injector',
+                              '$templateRequest', '$controller', '$compile', '$q',
+        function ($rootElement, $rootScope, $injector, $templates, $controller, $compile, $q) {
             _instrumentScopes($rootScope, $injector);
-            var appRegion = new miruken.ng.PartialRegion(
-                "app", $rootElement, $templates, $compile, $q, $timeout);
-            $appContext.addHandlers(appRegion, new BootstrapProvider);
-            _provideInjector(appContainer, $injector);
+            var rootRegion = new PartialView($rootElement, $rootScope, $templates, $controller, $compile, $q);
+            $rootContext.addHandlers(rootRegion, new BootstrapProvider, new GreenSockFadeProvider);
     }]);
     
     /**
@@ -104,28 +87,152 @@ new function () { // closure
          */
         filter: function (input) { return input; }
     });
+    
+    /**
+     * Represents an area of a view template.
+     * @class PartialView
+     * @constructor
+     * @param {Element}  container    -   html container element
+     * @param {Scope}    scope        -   partial scope
+     * @param {Element}  content      -   initial html content
+     * @param {Object}   $templates   -   angular $templateRequest service
+     * @param {Object}   $controller  -   angular $controller service
+     * @param {Object}   $compile     -   angular $compile service
+     * @param {Object}   $q           -   angular $q service
+     * @extends Base
+     * @uses miruken.$inferProperties
+     * @uses miruken.mvc.PartialRegion     
+     */
+    var PartialView = Base.extend(PartialRegion, $inferProperties, {
+        constructor: function (container, scope, $templates, $controller, $compile, $q) {
+            var _controller, _partialScope;
+
+            this.extend({
+                getContext: function () { return scope.context; },
+                getController: function () { return _controller; },
+                getControllerContext: function () { return _controller && _controller.context; },
+                present: function (presentation) {
+                    var composer = $composer,
+                        template,   templateUrl,
+                        controller, controllerAs;
+                    
+                    if ($isString(presentation)) {
+                        templateUrl = presentation;
+                    } else if (presentation) {
+                        template     = presentation.template,
+                        templateUrl  = presentation.templateUrl,
+                        controller   = presentation.controller;
+                        controllerAs = presentation.controllerAs || 'ctrl';
+                    }
+                    
+                    if (template) {
+                        return replaceContent(template);
+                    } else if (templateUrl) {
+                        return $templates(templateUrl, true).then(function (template) {
+                            return replaceContent(template);
+                        });
+                    } else {
+                        return $q.reject(new Error('A template or templateUrl must be specified'));
+                    }
+                    
+                    function replaceContent(template) {
+                        var oldScope       = _partialScope,
+                            modalPolicy    = new ModalPolicy,
+                            isModal        = composer.handle(modalPolicy, true),
+                            parentScope    = isModal ? composer.resolve('$scope') : scope;
+                        _partialScope      = (parentScope || scope).$new();
+                        var partialContext = _partialScope.context;
+                        _controller        = null;
+
+                        if (controller) {
+                            if (controller.prototype instanceof Controller) {
+                                _controller = partialContext.resolve(controller);                                
+                            } else {
+                                var parts   = controller.split(' ');
+                                _controller = $controller(parts[0], { $scope: _partialScope });
+                                if (parts.length > 1) {
+                                    controllerAs = parts[parts.length - 1];
+                                }
+                            }
+                        }
+
+                        if (_controller) {
+                            _partialScope[controllerAs] = _controller;                            
+                        }
+                        
+                        var content = $compile(template)(_partialScope);
+
+                        if (isModal) {
+                            var provider = modalPolicy.style || ModalProviding;
+                            return $q.when(provider(composer).showModal(container, content, modalPolicy, partialContext));
+                        }
+                        
+                        partialContext.onEnding(function (context) {
+                            if (context === _partialScope.context) {
+                                _controller = null;
+                            }
+                        });
+                        
+                        return animateContent(container, content, partialContext, $q).then(function (){
+                            if (oldScope) {
+                                oldScope.$destroy();
+                            }    
+                        });
+                    }
+
+                    function animateContent(container, content, partialContext, $q) {
+                        var fadePolicy = new FadePolicy,
+                            fade         = composer.handle(fadePolicy, true);
+
+                        if (fade) {   
+                            return FadeProviding(composer).handle(container, content, partialContext)
+                                .then(function () { return partialContext; });
+                        }
+
+                        partialContext.onEnding(function (context) {
+                            if (context === _partialScope.context) {
+                                container.html('');
+                            }
+                        });
+                        
+                        container.html(content);
+                        return $q.when(partialContext);
+                    }
+                }
+            });
+        },
+        toDelegate: function () {
+            var context = this.getContext();
+            return context ? context.toDelegate() : null;
+        }
+    });
 
     /**
-     * Angular directive to allow controller expressions.
-     * @class DynamicControllerDirective
+     * Angular directive marking a view region.
+     * @class RegionDirective
      * @constructor
      * @extends miruken.ng.Directive     
      */
-    var DynamicControllerDirective = Directive.extend({
-        restrict: "A",
-        terminal: true,
-        priority: 100000,
-        $inject:  [ "$parse", "$compile" ],
-        constructor: function ($parse, $compile) {
+    var RegionDirective = Directive.extend({
+        restrict:   'A',
+        scope:      true,        
+        priority:   -1000,
+        $inject:    ['$templateRequest', '$controller', '$compile', '$q'],
+        constructor: function ($templates, $controller, $compile, $q) {
             this.extend({
-                link: function (scope, elem, attrs) {
-                    var name = $parse(elem.attr("dynamic-controller"))(scope);
-                    if (scope.src) {
-                        elem.attr("src", "'" + scope.src + "'");
+                link: function (scope, element, attr) {
+                    var name    = scope.$eval(attr.region),
+                        partial = new PartialView(element, scope, $templates, $controller, $compile, $q);                    
+                    var owningController = scope.context.resolve(Controller);
+                    if (name) {
+                        if (owningController) {
+                            owningController[name] = partial;
+                        }
                     }
-                    elem.removeAttr("dynamic-controller");
-                    elem.attr("ng-controller", name);
-                    $compile(elem)(scope);
+                    scope.context.addHandlers(partial);  
+                    if ($isFunction(owningController.regionReady)) {
+                        owningController.regionReady();
+                    }                  
                 }
             });
         }
@@ -138,15 +245,15 @@ new function () { // closure
      * @extends miruken.ng.Directive     
      */
     var UseModelValidation = Directive.extend({
-        restrict: "A",
-        require:  "ngModel",
+        restrict: 'A',
+        require:  'ngModel',
         link: function (scope, elm, attrs, ctrl) {
-            var context = scope.context,
-                model   = attrs["useModelValidation"] || undefined;
+            var context   = scope.context,
+                modelExpr = attrs['useModelValidation'];
             ctrl.$validators.modelValidationHook = $debounce(function () {
-                Validating(context).validateAsync(model).finally(function() {
-                    scope.$evalAsync();
-                });
+                var model = modelExpr ? scope.$eval(modelExpr) : undefined;
+                Validating(context).validateAsync(model)
+                    .finally(scope.$apply.bind(scope));
                 return true;
             }, 100, false, true);
         }
@@ -159,17 +266,17 @@ new function () { // closure
      * @extends miruken.ng.Directive     
      */
     var DigitsOnly = Directive.extend({
-        restrict: "A",
-        require:  "?ngModel",
+        restrict: 'A',
+        require:  '?ngModel',
         link: function (scope, elm, attrs, modelCtrl) {
             modelCtrl.$parsers.push(function (inputValue) {
                 if (!modelCtrl) {
                     return;
                 }
                 if (inputValue == undefined) {
-                    return "";
+                    return '';
                 }
-                var strippedInput = inputValue.replace(/[^0-9]/g, "");
+                var strippedInput = inputValue.replace(/[^0-9]/g, '');
                 if (strippedInput != inputValue) {
                     modelCtrl.$setViewValue(strippedInput);
                     modelCtrl.$render();
@@ -186,29 +293,10 @@ new function () { // closure
      * @extends miruken.ng.Directive     
      */    
     var InhibitFocus = Directive.extend({
-        restrict: "A",
+        restrict: 'A',
         link: function (scope, elm, attrs) {
-            elm.bind("click", function () {
+            elm.bind('click', function () {
                 elm.blur();
-            });
-        }
-    });
-
-    /**
-     * Angular filter to trust content.<br/>
-     * See [Angular String Contextual Escaping](https://docs.angularjs.org/api/ng/service/$sce)
-     * 
-     * @class TrustFilter
-     * @constructor
-     * @extends miruken.ng.Filter     
-     */        
-    var TrustFilter = Filter.extend({
-        $inject: ["$sce"],
-        constructor: function ($sce) {
-            this.extend({
-                filter: function (input) {
-                    return $sce.trustAsHtml(input);
-                }
             });
         }
     });
@@ -230,18 +318,16 @@ new function () { // closure
                 if (exists) {
                     throw new Error(format("The Angular module '%1' already exists.", name));
                 }
-                if (module.indexOf(mirukenModule.name) < 0) {
-                    module = module.slice();
-                    module.push(mirukenModule.name);
-                }
                 module = angular.module(name, module);
+                module.constant('$rootContext', $rootContext);
+                _registerContents(ng, module, ng.exports.split(','));
             } else if (parent) {
                 module = parent.ngModule;
             }
             if (module) {
-                Object.defineProperty(this, "ngModule", { value: module });
+                Object.defineProperty(this, 'ngModule', { value: module });
             }
-            if ((parent === base2) && !(this.name in global)) {
+            if (parent === base2) {
                 global[this.name] = this;
             }
         },
@@ -250,17 +336,14 @@ new function () { // closure
             var module = this.ngModule;
             if (module && $isFunction(module.config)) {
                 var package   = this,
-                    container = Container($appContext),
+                    container = Container($rootContext),
                     runners   = [], starters = [];
                 _registerContents(this, module, exports);
-                module.config(["$injector", function ($injector) {
+                module.config(['$injector', function ($injector) {
                     _installPackage(package, module, exports, $injector, runners, starters);
                 }]);
-                module.run(["$rootScope", "$injector", "$q", "$log", function ($rootScope, $injector, $q, $log) {
-                    if (package.parent === base2 && !(package.name in $rootScope)) {
-                        $rootScope[package.name] = package;
-                    }
-                   _provideInjector(appContainer, $injector);
+                module.run(['$injector', '$q', '$log', function ($injector, $q, $log) {
+                   _provideInjector(rootContainer, $injector);
                    Array2.forEach(runners, function (runner) {
                        $injector.invoke(runner);
                    });
@@ -281,11 +364,11 @@ new function () { // closure
          * @method $ngApply
          * @returns {miruken.callback.CallbackHandler}  $digest aspect.
          * @for miruken.callback.CallbackHandler
-         */
+         */                                                                
         $ngApply: function() {
             return this.aspect(null, function(_, composer) {
-                var scope = composer.resolve("$scope");
-                if (scope && !scope.$$phase) {
+                var scope = composer.resolve('$scope');
+                if (scope) {
                     scope.$apply();
                 }
             });
@@ -293,19 +376,14 @@ new function () { // closure
         /**
          * Schedules the $digest to run at some time in the future after callback is handled.
          * @method $ngApplyAsync
-         * @param  {number}   [delay]  -  optional delay
          * @returns {miruken.callback.CallbackHandler}  $digest aspect.
          * @for miruken.callback.CallbackHandler
          */                                                                
-        $ngApplyAsync: function(delay) {
+        $ngApplyAsync: function() {
             return this.aspect(null, function(_, composer) {
-                var scope = composer.resolve("$scope");
+                var scope = composer.resolve('$scope');
                 if (scope) {
-                    if (delay) {
-                        setTimeout(scope.$evalAsync.bind(scope), delay);
-                    } else {
-                        scope.$evalAsync();
-                    }
+                    scope.$applyAsync();
                 }
             });
         }        
@@ -315,8 +393,9 @@ new function () { // closure
      * @function _instrumentScopes
      * Instruments angular scopes with miruken contexts.
      * @param  {Scope}   $rootScope  -  angular's root scope
+     * @param  {Scope}   $injector   -  angular's ng injector
      */
-    function _instrumentScopes($rootScope)
+    function _instrumentScopes($rootScope, $injector)
     {
         var scopeProto   = $rootScope.constructor.prototype,
             newScope     = scopeProto.$new,
@@ -327,7 +406,7 @@ new function () { // closure
                 childContext = parentScope && parentScope.context
                              ? parentScope.context.newChild()
                              : new Context;
-            $provide(childContext, "$scope", childScope);
+            $provide(childContext, '$scope', childScope);
             childContext.onEnded(function (context) {
                 childScope.$destroy();
             });
@@ -343,11 +422,9 @@ new function () { // closure
             destroyScope.call(this);
         };
         $rootScope.rootContext = $rootScope.context = $rootContext;
-        $provide($rootContext, "$scope", $rootScope);        
+        _provideInjector(rootContainer, $injector);
     }
 
-    var _controllerPolicies = [ ComponentModelAwarePolicy.Explicit ];
-    
     /**
      * @function _registerContents
      * Registers the package controllers, filters, directives and any conforming
@@ -357,45 +434,41 @@ new function () { // closure
      * @param  {Array}    exports  - exported members
      */
     function _registerContents(package, module, exports) {
-        var unknown   = exports.slice(),
-            container = Container($appContext);
+        var container = Container($rootContext);
         Array2.forEach(exports, function (name) {
             var member = package[name];
-            if (!member || !member.prototype || $isProtocol(member)) {
+            if (!member || !member.prototype) {
                 return;
             }
             var memberProto = member.prototype;
-            name = memberProto.$name || name;
+            name = memberProto.name || name;
             if (memberProto instanceof Directive) {
                 var directive = new ComponentModel;
-                directive.key = member;
+                directive.setKey(member);
                 container.addComponent(directive);
                 var deps = _ngDependencies(directive);
-                deps.unshift("$rootScope", "$injector");
+                deps.unshift('$rootScope');
                 deps.push(Shim(member, deps.slice()));
                 if (/Directive$/.test(name)) {
                     name = name.substring(0, name.length - 9);
                 }
                 name = name.charAt(0).toLowerCase() + name.slice(1);
                 module.directive(name, deps);
-                Array2.remove(unknown, name);
             } else if (memberProto instanceof Controller) {
                 var controller = new ComponentModel;
-                controller.key = [member, name];
-                controller.implementation = member;                
-                controller.lifestyle = new ContextualLifestyle;
-                container.addComponent(controller, _controllerPolicies);
+                controller.setKey(member);
+                controller.setLifestyle(new ContextualLifestyle);
+                container.addComponent(controller);
                 var deps = _ngDependencies(controller);
-                deps.unshift("$scope", "$injector");
+                deps.unshift('$scope', '$injector');
                 deps.push(Shim(member, deps.slice()));
                 module.controller(name, deps);
-                Array2.remove(unknown, name);                
             } else if (memberProto instanceof Filter) {
                 var filter = new ComponentModel;
-                filter.key = member;
+                filter.setKey(member);
                 container.addComponent(filter);
                 var deps = _ngDependencies(filter);
-                deps.unshift("$rootScope", "$injector");
+                deps.unshift('$rootScope');
                 var shim = Shim(member, deps.slice());
                 deps.push(function () {
                     var instance = shim.apply(null, arguments);
@@ -406,11 +479,10 @@ new function () { // closure
                 }
                 name = name.charAt(0).toLowerCase() + name.slice(1);
                 module.filter(name, deps);
-                Array2.remove(unknown, name);                
             }
         });
         container.register(
-            $classes.fromPackage(package, unknown).basedOn(Resolving)
+            $classes.fromPackage(package, exports).basedOn(Resolving)
                 .withKeys.mostSpecificService()
         );             
     }
@@ -426,7 +498,7 @@ new function () { // closure
      * @param  {Array}     starters  -  collects starters
      */
     function _installPackage(package, module, exports, injector, runners, starters) {
-        var container = Container($appContext);
+        var container = Container($rootContext);
         Array2.forEach(exports, function (name) {
             var member = package[name];
             if (!member) {
@@ -435,7 +507,7 @@ new function () { // closure
             var memberProto = member.prototype;
             if (memberProto instanceof Installer || memberProto instanceof Runner) {
                 var deps      = (memberProto.$inject || member.$inject || []).slice(),
-                    moduleIdx = deps.indexOf("$module");
+                    moduleIdx = deps.indexOf('$module');
                 if (moduleIdx >= 0) {
                     deps.splice(moduleIdx, 1);
                 }
@@ -496,7 +568,7 @@ new function () { // closure
      */
     function _provideLiteral(owner, literal) {
         $provide(owner, null, function (resolution) {
-            var key = Modifier.unwrap(resolution.key);
+            var key = Modifier.unwrap(resolution.getKey());
             return literal[key];
         });
     }
@@ -509,7 +581,7 @@ new function () { // closure
      */
     function _provideInjector(owner, injector) {
         $provide(owner, null, function (resolution) {
-            var key = Modifier.unwrap(resolution.key);
+            var key = Modifier.unwrap(resolution.getKey());
             if ($isString(key) && injector.has(key)) {
                 return injector.get(key);
             }
@@ -534,363 +606,7 @@ new function () { // closure
 }
 
 }).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"../error":8,"../ioc":12,"../miruken":14,"../mvc":17}],3:[function(require,module,exports){
-var miruken = require('../miruken');
-              require('../mvc');
-
-new function () { // closure
-
-    /**
-     * Package providing [Angular](https://angularjs.org) integration.<br/>
-     * Requires the {{#crossLinkModule "miruken"}}{{/crossLinkModule}},
-     * {{#crossLinkModule "mvc"}}{{/crossLinkModule}},
-     * @module miruken
-     * @submodule ng
-     * @namespace miruken.ng
-     */
-    miruken.package(this, {
-        name:    "ng",
-        imports: "miruken,miruken.mvc",
-        exports: "PartialRegion,RegionDirective"
-    });
-
-    eval(this.imports);
-
-    var PartialRegion = Base.extend(ViewRegion, {
-        constructor: function (tag, container, $templates, $compile, $q, $timeout) {
-            var _partialScope, _layers = [];
-            this.extend({
-                show: function (view) {
-                    var composer = $composer,
-                        policy   = new RegionPolicy();
-
-                    if (composer.handle(policy, true) &&
-                        (policy.tag && !$equals(policy.tag, tag))) {
-                        return $NOT_HANDLED;
-                    }
-
-                    var controller = composer.resolve(Controller);                    
-                    if (!controller) {
-                        return $q.reject(new Error("A Controller could not be inferred"));
-                    }
-                    
-                    var template, templateUrl;
-                    
-                    if ($isString(view)) {
-                        templateUrl = view;
-                    } else if (view) {
-                        template     = view.template;
-                        templateUrl  = view.templateUrl;
-                    }
-
-                    if (template) {
-                        return renderTemplate(template);
-                    } else if (templateUrl) {
-                        if (templateUrl.lastIndexOf(".") < 0) {
-                            templateUrl = templateUrl + ".html";
-                        }
-                        return $templates(templateUrl, true).then(function (template) {
-                            return renderTemplate(template);
-                        });
-                    } else {
-                        return $q.reject(new Error("A template or templateUrl must be specified"));
-                    }
-                    
-                    function renderTemplate(template) {
-                        var modal = policy.modal,
-                            push  = modal || policy.push || _layers.length === 0;
-                        
-                        if (push) {
-                            var Layer = Base.extend(ViewLayer, DisposingMixin, {
-                                get index() {
-                                    return _layers.indexOf($decorated(this, true));
-                                },
-                                transitionTo: function (controller, template, policy, composer) {
-                                    var content = this._expandTemplate(template, controller);
-                                    if (modal) {
-                                        var provider     = modal.style || ModalProviding,
-                                            modalScope   = this._layerScope,
-                                            modalContext = modalScope.context,
-                                            modalResult  = provider(composer)
-                                                .showModal(container, content, modal, modalContext);
-                                        modalContext.onEnding(this.dispose.bind(this));
-                                        return Promise.resolve($decorate(this, {
-                                            modalResult: modalResult
-                                        }));
-                                    }                             
-                                    return $timeout(function () {
-                                        if (this._content) {
-                                            this._content.replaceWith(content);
-                                        } else {
-                                            container.html(content);
-                                        }
-                                        this._content = content;
-                                        return this;
-                                    }.bind(this));
-                                },
-                                transitionFrom: function () {
-                                    if (this._content) {
-                                        this._content.remove();
-                                        this._content = null;
-                                    }
-                                    if (this._layerScope) {
-                                        this._layerScope.$destroy();
-                                        this._layerScope = null;                                        
-                                    }
-                                },
-                                _expandTemplate: function (template, controller) {
-                                    var context    = controller.context,
-                                        scope      = context.resolve("$scope"),                                    
-                                        layerScope = scope.$new();
-                                    layerScope["ctrl"] = controller;
-                                    var content = $compile(template)(layerScope);
-                                    if (this._layerScope) {
-                                        this._layerScope.$destroy();
-                                    }
-                                    this._layerScope = layerScope;
-                                    return content;
-                                },
-                                _dispose: function () {
-                                    var index = this.index;
-                                    if (index < 0) { return; }
-                                    _layers.splice(index, 1);
-                                    this.transitionFrom();
-                                }
-                            });
-                            
-                            var layer = new Layer();
-                            _layers.push(layer);
-                            controller.context.onEnding(function () {
-                                layer.dispose();
-                            });
-                        }
-
-                        var activeLayer = _layers.slice(-1)[0];
-                        return activeLayer.transitionTo(controller, template, policy, composer);
-                    }
-                }
-            });
-        }
-    });
-
-    /**
-     * Angular directive marking a view region.
-     * @class RegionDirective
-     * @constructor
-     * @extends miruken.ng.Directive     
-     */
-    var RegionDirective = Directive.extend({
-        restrict:   "A",
-        scope:      false,        
-        priority:   -1000,
-        $inject:    ["$templateRequest", "$compile", "$q", "$timeout"],
-        constructor: function ($templates, $compile, $q, $timeout) {
-            this.extend({
-                link: function (scope, element, attr) {
-                    var tag     = attr.region,
-                        context = scope.context,
-                        owner   = context.resolve(Controller),
-                        region  = this.createRegion(tag, element, $templates, $compile, $q, $timeout);
-                    context.addHandlers(region);
-                    if (owner && $isFunction(owner.viewRegionCreated)) {
-                        owner.viewRegionCreated(region);
-                    }                    
-                }
-            }); 
-        },
-        createRegion: function (tag, element, $templates, $compile, $q, $timeout)
-        {
-            return new PartialRegion(tag, element, $templates, $compile, $q, $timeout);
-        }
-    });
-
-    eval(this.exports);
-    
-}
-
-},{"../miruken":14,"../mvc":17}],4:[function(require,module,exports){
-var miruken = require('../miruken');
-              require('../mvc');
-              require('../error');
-
-new function () { // closure
-
-    miruken.package(this, {
-        name:    "ng",
-        imports: "miruken,miruken.error,miruken.mvc",
-        exports: "RouteRegion,RouteRegionDirective,UiRouter"
-    });
-
-    eval(this.imports);
-    
-    var RouteRegion = PartialRegion.extend({
-        constructor: function () {
-            this.base.apply(this, arguments);
-            this.extend({
-                show: function (view) {
-                    var composer = $composer,
-                        layer    = this.base(view);
-                    var navigate = composer.resolve(Navigation);
-                    if (!navigate) { return layer; }
-                    return layer.then(function (result) {
-                        if (result.index === 0) {
-                            Routing(composer).followNavigation(navigate);
-                        }
-                        return result;
-                    });
-                }
-            });
-        }
-    });
-    
-    /**
-     * Adapts the [Angular ui-router] (https://github.com/angular-ui/ui-router)
-     * to support conventional MVC routing semantics
-     * @class UiRouter
-     * @extends Router
-     */
-    var UiRouter = Router.extend(context.$contextual, {
-        constructor: function (prefix, $state, $urlMatcherFactory) {
-            var _urls = {};            
-            prefix = prefix + ".";
-            this.extend({
-                handleRoute: function (route) {
-                    $state.go(route.name, route.params);
-                    return this.base(route);
-                },
-                followNavigation: function (navigation) {
-                    var states = $state.get();
-                    for (var i = 0; i < states.length; ++i) {
-                        var state = states[i],
-                            route = state.name;
-                        if (!state.abstract && route.indexOf(prefix) === 0) {
-                            var url = _urls[route];
-                            if (!url) {
-                                url = $urlMatcherFactory.compile(state.url);
-                                _urls[route] = url;
-                            }
-                            var params = Object.create(state.params || null);
-                            if (this.matchesRoute(navigation, url, params)) {
-                                $state.go(route, params, { notify: false });
-                                return;
-                            }
-                        }
-                    }
-                }
-            });
-        },
-        rejectRoute: function (route, error) {
-            return Errors($composer).handleError(error, "ui-router");
-        },        
-        matchesRoute: function (navigation, url, params) {
-            var urlParams = url.params,
-                navAction = navigation.action.toLowerCase(),
-                action    = params.action;
-            
-            if ((action == null || navAction == null ||
-                 action.toLowerCase() !== navAction) && !("action" in urlParams)) {
-                return false;
-            }
-            params.action = navAction;
-            
-            var navController = navigation.controller,
-                controller    = params.controller;
-            if (controller) {
-                if ($isFunction(controller) && !(navController instanceof controller)) {
-                    return false;
-                } else if (!$isString(controller)) {
-                    return false;
-                }
-                var key  = this.extractControllerKey(controller),
-                    keys = Array2.filter(navController.componentModel.key, $isString);
-                if (!Array2.some(keys, function (k) {
-                    return this.extractControllerKey(k) === key;
-                })) {
-                    return false;
-                };
-                params.controller = key;
-            } else if (!("controller" in urlParams)) {
-                return false;
-            } else {
-                var keys = Array2.filter(navController.componentModel.key, $isString);
-                if (keys.length === 0) { return false; }
-                params.controller = this.extractControllerKey(keys[0]);
-            }
-
-            var args    = navigation.args;
-                urlKeys = Object.getOwnPropertyNames(urlParams); 
-            if (args && args.length === 1) {
-                args = args[0];
-            }
-            for (var i = 0; i < urlKeys.length; ++i) {
-                var urlKey = urlKeys[i];
-                if (!(urlKey in params)) {
-                    if (args && (urlKey in args)) {
-                        params[urlKey] = args[urlKey];
-                    } else {
-                        return false;
-                    }
-                }
-            }
-            return true;
-        }
-    }, {
-        install: function (prefix, created) {
-            var clazz = this;
-            return {
-                name:       prefix,
-                abstract:   true,
-                template:   "<div route-region></div>",
-                controller: ["$scope", "$state", "$urlMatcherFactory",
-                             function ($scope, $state, $urlMatcherFactory) {
-                    var context = $scope.context,
-                        router  = clazz.new.call(clazz, prefix, $state, $urlMatcherFactory);
-                    router.context = context;
-                    context.addHandlers(router);
-                    new Controller().context = context;  // dummy controller
-                    $scope.$on("$stateChangeSuccess", function (event, toState, toParams) {
-                        var route = new Route({
-                                name:    toState.name,
-                                pattern: toState.url,
-                                params:  toParams
-                            }),
-                            locals = [Route, route];
-                        
-                        var ctx = context.$$provide(locals);
-                        Routing(ctx.unwind()).handleRoute(route);
-                    });
-                    if ($isFunction(created)) {
-                        created(router);                 
-                    }
-                }]
-            };
-        },
-        route: function (urlPattern, options) {
-            var route = { url: urlPattern };
-            if (options) { route.params = options; }
-            return route;
-        }
-    });
-
-    /**
-     * Specialized {{#crossLink "miruken.ng.RegionDirective"}}{{/crossLink}}
-     * for hosting routed content.
-     * @class RouteRegionDirective
-     * @constructor
-     * @extends miruken.ng.RegionDirective     
-     */    
-    var RouteRegionDirective = RegionDirective.extend({
-        createRegion: function (tag, element, $templates, $compile, $q, $timeout)
-        {
-            return new RouteRegion(tag, element, $templates, $compile, $q, $timeout);
-        }
-    });
-
-    eval(this.exports);
-    
-}
-
-},{"../error":8,"../miruken":14,"../mvc":17}],5:[function(require,module,exports){
+},{"../ioc":10,"../miruken":12,"../mvc":17}],3:[function(require,module,exports){
 /*
   base2 - copyright 2007-2009, Dean Edwards
   http://code.google.com/p/base2/
@@ -906,7 +622,7 @@ base2 = {
   name:    "base2",
   version: "1.1 (alpha1)",
   exports:
-    "Base,Package,Abstract,Module,Enumerable," +
+    "Base,Package,Abstract,Module,Enumerable,Map,Collection,RegGrp," +
     "Undefined,Null,This,True,False,assignID,global",
   namespace: ""
 };
@@ -1060,22 +776,14 @@ var Package = Base.extend({
       if (_public.parent === undefined) pkg.parent = base2;
       openPkg = pkg.parent && pkg.parent[pkg.name];
       if (openPkg) {
-        if (!(openPkg instanceof Package)) {
-          throw new Error(format("'%1' is reserved and cannot be used as a package name", pkg.name));
-        }
         pkg.namespace = openPkg.namespace;
       } else {
-          if (pkg.parent) {
-             pkg.version = pkg.version || pkg.parent.version;
-             pkg.parent.addName(pkg.name, pkg);
-          }
+        if (pkg.parent) pkg.parent.addName(pkg.name, pkg);
         pkg.namespace = format("var %1=%2;", pkg.name, String2.slice(pkg, 1, -1));
       }
     }
     
     if (_private) {
-      _private.__package = this;
-      _private.package = openPkg || this;
       // This next line gets round a bug in old Mozilla browsers
       var jsNamespace = base2.js ? base2.js.namespace : "";
       
@@ -1107,7 +815,7 @@ var Package = Base.extend({
       _private.exported = function() {
         if (nsPkg.exported) nsPkg.exported(exports);
       };
-      _private.exports = "if(!" + pkg.name +")var " + pkg.name + "=this.__package;" + namespace + "this._label_" + pkg.name + "();this.exported();";
+      _private.exports = namespace + "this._label_" + pkg.name + "();this.exported();";
       
       // give objects and classes pretty toString methods
       var packageName = String2.slice(pkg, 1, -1);
@@ -1153,7 +861,6 @@ var Package = Base.extend({
       if (value && value.ancestorOf == Base.ancestorOf && name != "constructor") { // it's a class
         value.toString = K("[" + String2.slice(this, 1, -1) + "." + name + "]");
       }
-      if (this.exported) this.exported([name]);
     }
   },
 
@@ -1163,11 +870,6 @@ var Package = Base.extend({
     return package;
   },
 
-  package: function(_private, _public) {
-    _public.parent = this;
-    return new Package(_private, _public);
-  },
-    
   toString: function() {
     return format("[%1]", this.parent ? String2.slice(this.parent, 1, -1) + "." + this.name : this.name);
   }
@@ -1372,6 +1074,402 @@ var Enumerable = Module.extend({
 });
 
 // =========================================================================
+// base2/Map.js
+// =========================================================================
+
+// http://wiki.ecmascript.org/doku.php?id=proposals:dictionary
+
+var _HASH = "#";
+
+var Map = Base.extend({
+  constructor: function(values) {
+    if (values) this.merge(values);
+  },
+
+  clear: function() {
+    for (var key in this) if (key.indexOf(_HASH) == 0) {
+      delete this[key];
+    }
+  },
+
+  copy: function() {
+    base2.__prototyping = true; // not really prototyping but it stops [[construct]] being called
+    var copy = new this.constructor;
+    delete base2.__prototyping;
+    for (var i in this) if (this[i] !== copy[i]) {
+      copy[i] = this[i];
+    }
+    return copy;
+  },
+
+  forEach: function(block, context) {
+    for (var key in this) if (key.indexOf(_HASH) == 0) {
+      block.call(context, this[key], key.slice(1), this);
+    }
+  },
+
+  get: function(key) {
+    return this[_HASH + key];
+  },
+
+  getKeys: function() {
+    return this.map(II);
+  },
+
+  getValues: function() {
+    return this.map(I);
+  },
+
+  // Ancient browsers throw an error if we use "in" as an operator.
+  has: function(key) {
+    key = _HASH + key;
+    /*@if (@_jscript_version < 5.5)
+      return this[key] !== undefined || $Legacy.has(this, key);
+    @else @*/
+      return key in this;
+    /*@end @*/
+  },
+
+  merge: function(values /*, value1, value2, .. ,valueN */) {
+    var put = flip(this.put);
+    forEach (arguments, function(values) {
+      forEach (values, put, this);
+    }, this);
+    return this;
+  },
+
+  put: function(key, value) {
+    // create the new entry (or overwrite the old entry).
+    this[_HASH + key] = value;
+    return value;
+  },
+
+  remove: function(key) {
+    delete this[_HASH + key];
+  },
+
+  size: function() {
+    // this is expensive because we are not storing the keys
+    var size = 0;
+    for (var key in this) if (key.indexOf(_HASH) == 0) size++;
+    return size;
+  },
+
+  union: function(values) {
+    return this.merge.apply(this.copy(), arguments);
+  }
+});
+
+Map.implement(Enumerable);
+
+Map.prototype.filter = function(test, context) {
+  return this.reduce(function(result, value, key) {
+    if (!test.call(context, value, key, this)) {
+      result.remove(key);
+    }
+    return result;
+  }, this.copy(), this);
+};
+
+// =========================================================================
+// base2/Collection.js
+// =========================================================================
+
+// A Map that is more array-like (accessible by index).
+
+// Collection classes have a special (optional) property: Item
+// The Item property points to a constructor function.
+// Members of the collection must be an instance of Item.
+
+// The static create() method is responsible for all construction of collection items.
+// Instance methods that add new items (add, put, insertAt, putAt) pass *all* of their arguments
+// to the static create() method. If you want to modify the way collection items are 
+// created then you only need to override this method for custom collections.
+
+var _KEYS = "~";
+
+var Collection = Map.extend({
+  constructor: function(values) {
+    this[_KEYS] = new Array2;
+    this.base(values);
+  },
+  
+  add: function(key, item) {
+    // Duplicates not allowed using add().
+    // But you can still overwrite entries using put().
+    if (this.has(key)) throw "Duplicate key '" + key + "'.";
+    return this.put.apply(this, arguments);
+  },
+
+  clear: function() {
+    this.base();
+    this[_KEYS].length = 0;
+  },
+
+  copy: function() {
+    var copy = this.base();
+    copy[_KEYS] = this[_KEYS].copy();
+    return copy;
+  },
+
+  forEach: function(block, context) {
+    var keys = this[_KEYS].concat();
+    var length = keys.length;
+    for (var i = 0; i < length; i++) {
+      block.call(context, this[_HASH + keys[i]], keys[i], this);
+    }
+  },
+
+  getAt: function(index) {
+    var key = this[_KEYS].item(index);
+    return (key === undefined)  ? undefined : this[_HASH + key];
+  },
+
+  getKeys: function() {
+    return this[_KEYS].copy();
+  },
+
+  indexOf: function(key) {
+    return this[_KEYS].indexOf(String(key));
+  },
+
+  insertAt: function(index, key, item) {
+    if (this[_KEYS].item(index) == null) throw "Index out of bounds.";
+    if (this.has(key)) throw "Duplicate key '" + key + "'.";
+    this[_KEYS].insertAt(index, String(key));
+    this[_HASH + key] = null; // placeholder
+    return this.put.apply(this, _slice.call(arguments, 1));
+  },
+
+  item: function(keyOrIndex) {
+    return this[typeof keyOrIndex == "number" ? "getAt" : "get"](keyOrIndex);
+  },
+
+  put: function(key, item) {
+    var klass = this.constructor;
+    if (klass.Item && !instanceOf(item, klass.Item)) {
+      item = klass.create.apply(klass, arguments);
+    }
+    if (!this.has(key)) {
+      this[_KEYS].push(String(key));
+    }
+    this[_HASH + key] = item;
+    return item;
+  },
+
+  putAt: function(index, item) {
+    arguments[0] = this[_KEYS].item(index);
+    if (arguments[0] == null) throw "Index out of bounds.";
+    return this.put.apply(this, arguments);
+  },
+
+  remove: function(key) {
+    // The remove() method of the Array object can be slow so check if the key exists first.
+    if (this.has(key)) {
+      this[_KEYS].remove(String(key));
+      delete this[_HASH + key];
+    }
+  },
+
+  removeAt: function(index) {
+    var key = this[_KEYS].item(index);
+    if (key !== undefined) {
+      this[_KEYS].removeAt(index);
+      delete this[_HASH + key];
+    }
+  },
+
+  reverse: function() {
+    this[_KEYS].reverse();
+    return this;
+  },
+
+  size: function() {
+    return this[_KEYS].length;
+  },
+
+  slice: function(start, end) {
+    var sliced = this.copy();
+    if (arguments.length > 0) {
+      var keys = this[_KEYS], removed = keys;
+      sliced[_KEYS] = Array2(_slice.apply(keys, arguments));
+      if (sliced[_KEYS].length) {
+        removed = removed.slice(0, start);
+        if (arguments.length > 1) {
+          removed = removed.concat(keys.slice(end));
+        }
+      }
+      for (var i = 0; i < removed.length; i++) {
+        delete sliced[_HASH + removed[i]];
+      }
+    }
+    return sliced;
+  },
+
+  sort: function(compare) { // optimised (refers to _HASH)
+    if (compare) {
+      this[_KEYS].sort(bind(function(key1, key2) {
+        return compare(this[_HASH + key1], this[_HASH + key2], key1, key2);
+      }, this));
+    } else this[_KEYS].sort();
+    return this;
+  },
+
+  toString: function() {
+    return "(" + (this[_KEYS] || "") + ")";
+  }
+}, {
+  Item: null, // If specified, all members of the collection must be instances of Item.
+  
+  create: function(key, item) {
+    return this.Item ? new this.Item(key, item) : item;
+  },
+  
+  extend: function(_instance, _static) {
+    var klass = this.base(_instance);
+    klass.create = this.create;
+    if (_static) extend(klass, _static);
+    if (!klass.Item) {
+      klass.Item = this.Item;
+    } else if (typeof klass.Item != "function") {
+      klass.Item = (this.Item || Base).extend(klass.Item);
+    }
+    if (klass.init) klass.init();
+    return klass;
+  }
+});
+
+// =========================================================================
+// base2/RegGrp.js
+// =========================================================================
+
+// A collection of regular expressions and their associated replacement values.
+// A Base class for creating parsers.
+
+var _RG_BACK_REF        = /\\(\d+)/g,
+    _RG_ESCAPE_CHARS    = /\\./g,
+    _RG_ESCAPE_BRACKETS = /\(\?[:=!]|\[[^\]]+\]/g,
+    _RG_BRACKETS        = /\(/g,
+    _RG_LOOKUP          = /\$(\d+)/,
+    _RG_LOOKUP_SIMPLE   = /^\$\d+$/;
+
+var RegGrp = Collection.extend({
+  constructor: function(values, ignoreCase) {
+    this.base(values);
+    this.ignoreCase = !!ignoreCase;
+  },
+
+  ignoreCase: false,
+
+  exec: function(string, override) { // optimised (refers to _HASH/_KEYS)
+    string += ""; // type-safe
+    var items = this, keys = this[_KEYS];
+    if (!keys.length) return string;
+    if (override == RegGrp.IGNORE) override = 0;
+    return string.replace(new RegExp(this, this.ignoreCase ? "gi" : "g"), function(match) {
+      var item, offset = 1, i = 0;
+      // Loop through the RegGrp items.
+      while ((item = items[_HASH + keys[i++]])) {
+        var next = offset + item.length + 1;
+        if (arguments[offset]) { // do we have a result?
+          var replacement = override == null ? item.replacement : override;
+          switch (typeof replacement) {
+            case "function":
+              return replacement.apply(items, _slice.call(arguments, offset, next));
+            case "number":
+              return arguments[offset + replacement];
+            default:
+              return replacement;
+          }
+        }
+        offset = next;
+      }
+      return match;
+    });
+  },
+
+  insertAt: function(index, expression, replacement) {
+    if (instanceOf(expression, RegExp)) {
+      arguments[1] = expression.source;
+    }
+    return this.base.apply(this, arguments);
+  },
+
+  test: function(string) {
+    // The slow way to do it. Hopefully, this isn't called too often. :-)
+    return this.exec(string) != string;
+  },
+  
+  toString: function() {
+    var offset = 1;
+    return "(" + this.map(function(item) {
+      // Fix back references.
+      var expression = (item + "").replace(_RG_BACK_REF, function(match, index) {
+        return "\\" + (offset + Number(index));
+      });
+      offset += item.length + 1;
+      return expression;
+    }).join(")|(") + ")";
+  }
+}, {
+  IGNORE: "$0",
+  
+  init: function() {
+    forEach ("add,get,has,put,remove".split(","), function(name) {
+      this[name] = _override(this, name, function(expression) {
+        if (instanceOf(expression, RegExp)) {
+          arguments[0] = expression.source;
+        }
+        return this.base.apply(this, arguments);
+      });
+    }, this.prototype);
+  },
+  
+  Item: {
+    constructor: function(expression, replacement) {
+      if (replacement == null) replacement = RegGrp.IGNORE;
+      else if (replacement.replacement != null) replacement = replacement.replacement;
+      else if (typeof replacement != "function") replacement = String(replacement);
+      
+      // does the pattern use sub-expressions?
+      if (typeof replacement == "string" && _RG_LOOKUP.test(replacement)) {
+        // a simple lookup? (e.g. "$2")
+        if (_RG_LOOKUP_SIMPLE.test(replacement)) {
+          // store the index (used for fast retrieval of matched strings)
+          replacement = parseInt(replacement.slice(1), 10);
+        } else { // a complicated lookup (e.g. "Hello $2 $1")
+          // build a function to do the lookup
+          // Improved version by Alexei Gorkov:
+          var Q = '"';
+          replacement = replacement
+            .replace(/\\/g, "\\\\")
+            .replace(/"/g, "\\x22")
+            .replace(/\n/g, "\\n")
+            .replace(/\r/g, "\\r")
+            .replace(/\$(\d+)/g, Q + "+(arguments[$1]||" + Q+Q + ")+" + Q)
+            .replace(/(['"])\1\+(.*)\+\1\1$/, "$1");
+          replacement = new Function("return " + Q + replacement + Q);
+        }
+      }
+      
+      this.length = RegGrp.count(expression);
+      this.replacement = replacement;
+      this.toString = K(expression + "");
+    },
+
+    disabled: false,
+    length: 0,
+    replacement: ""
+  },
+  
+  count: function(expression) {
+    // Count the number of sub-expressions in a RegExp/RegGrp.Item.
+    expression = (expression + "").replace(_RG_ESCAPE_CHARS, "").replace(_RG_ESCAPE_BRACKETS, "");
+    return match(expression, _RG_BRACKETS).length;
+  }
+});
+
+// =========================================================================
 // lang/package.js
 // =========================================================================
 
@@ -1444,23 +1542,50 @@ function extend(object, source) { // or extend(object, key, value)
     if (useProto) {
       var i = _HIDDEN.length, key;
       while ((key = _HIDDEN[--i])) {
-        var desc = _getPropertyDescriptor(source, key);
-        if (desc.value != proto[key]) {
-          desc = _override(object, key, desc);
-          if (desc) Object.defineProperty(object, key, desc);
+        var value = source[key];
+        if (value != proto[key]) {
+          if (_BASE.test(value)) {
+            object[key] = _override(object, key, value);
+          } else {
+            object[key] = value;
+          }
         }
       }
     }
     // Copy each of the source object's properties to the target object.
     for (key in source) {
-      if (typeof proto[key] == "undefined" && key !== "base") {
-        var desc = _getPropertyDescriptor(source, key);
-        desc = _override(object, key, desc);
-        if (desc) Object.defineProperty(object, key, desc);
+      if (typeof proto[key] == "undefined") {
+        value = source[key];
+        if (value != _IGNORE) {
+          // Check for method overriding.
+          var ancestor = object[key];
+          if (ancestor && typeof value == "function") {
+            if (value != ancestor) {
+              if (_BASE.test(value)) {
+                object[key] = _override(object, key, value);
+              } else {
+                value.ancestor = ancestor;
+                object[key] = value;
+              }
+            }
+          } else {
+            object[key] = value;
+          }
+        }
       }
     }
   }
-  return object;
+  // http://www.hedgerwow.com/360/dhtml/ie6_memory_leak_fix/
+  /*@if (@_jscript) {
+    try {
+      return object;
+    } finally {
+      object = null;
+    }
+  }
+  @else @*/
+    return object;
+  /*@end @*/
 };
 
 function _ancestorOf(ancestor, fn) {
@@ -1473,105 +1598,24 @@ function _ancestorOf(ancestor, fn) {
   return false;
 };
 
-function _override(object, name, desc) {
-  var value = desc.value;
-  if (value === _IGNORE) return;
-  if ((typeof value !== "function") && ("value" in desc)) {
-    return desc;
-  }
-  var ancestor = _getPropertyDescriptor(object, name);
-  if (!ancestor) return desc;
-  var superObject = base2.__prototyping; // late binding for prototypes;
-  if (superObject) {
-    var sprop = _getPropertyDescriptor(superObject, name);
-    if (sprop && (sprop.value != ancestor.value ||
-                  sprop.get   != ancestor.get ||
-                  sprop.set   != ancestor.set)) {
-        superObject = null;
-    }
-  }
-  if (value) {
-    var avalue = ancestor.value;
-    if (avalue && _BASE.test(value)) {
-      desc.value = function () {
-        var b = this.base;
-        this.base = function () {
-          var b = this.base,
-              method = (superObject && superObject[name]) || avalue;
-          this.base = Undefined;  // method overriden in ctor
-          var ret = method.apply(this, arguments);
-          this.base = b;
-          return ret;
-        };
-        var ret = value.apply(this, arguments);
-        this.base = b;
-        return ret;
-      };
-    }
-    return desc;
-  }
-  var get = desc.get, aget = ancestor.get;        
-  if (get) {
-    if (aget && _BASE.test(get)) {
-      desc.get = function () {
-        var b = this.base;
-        this.base = function () {
-          var b = this.base,
-              get = (superObject && _getPropertyDescriptor(superObject, name).get) || aget;
-          this.base = Undefined;  // getter overriden in ctor            
-          var ret = get.apply(this, arguments);
-          this.base = b;
-          return ret;
-        }
-        var ret = get.apply(this, arguments);
-        this.base = b;
-        return ret;
-      };
-    }
-  } else if (superObject) {
-    desc.get = function () {
-      var get = _getPropertyDescriptor(superObject, name).get;
-      return get.apply(this, arguments);
-    };
-  } else {
-      desc.get = aget;
-  }
-  var set = desc.set, aset = ancestor.set;        
-  if (set) {
-    if (aset && _BASE.test(set)) {
-      desc.set = function () {
-        var b = this.base;
-        this.base = function () {
-          var b = this.base,
-              set = (superObject && _getPropertyDescriptor(superObject, name).set) || aset;
-          this.base = Undefined;  // setter overriden in ctor            
-          var ret = set.apply(this, arguments);
-          this.base = b;
-          return ret;
-        }
-        var ret = set.apply(this, arguments);
-        this.base = b;
-        return ret;
-      };
-    }
-  } else if (superObject) {
-    desc.set = function () {
-      var set = _getPropertyDescriptor(superObject, name).set;
-      return set.apply(this, arguments);
-    };      
-  } else {
-    desc.set = aset;
-  }
-  return desc;
+function _override(object, name, method) {
+  // Return a method that overrides an existing method.
+  var ancestor = object[name];
+  var superObject = base2.__prototyping; // late binding for prototypes
+  if (superObject && ancestor != superObject[name]) superObject = null;
+  function _base() {
+    var previous = this.base;
+    this.base = superObject ? superObject[name] : ancestor;
+    var returnValue = method.apply(this, arguments);
+    this.base = previous;
+    return returnValue;
+  };
+  _base.method = method;
+  _base.ancestor = ancestor;
+  // introspection (removed when packed)
+  ;;; _base.toString = K(method + "");
+  return _base;
 };
-    
-function _getPropertyDescriptor(object, key) {
-    var source = object, descriptor;
-    while (source && !(
-        descriptor = Object.getOwnPropertyDescriptor(source, key))
-        ) source = Object.getPrototypeOf(source);
-    return descriptor;
-}
 
 // =========================================================================
 // lang/forEach.js
@@ -2266,7 +2310,7 @@ if (typeof exports !== 'undefined') {
 
 }; ////////////////////  END: CLOSURE  /////////////////////////////////////
 
-},{}],6:[function(require,module,exports){
+},{}],4:[function(require,module,exports){
 (function (global){
 var miruken = require('./miruken.js'),
     Promise = require('bluebird');
@@ -2281,18 +2325,15 @@ new function () { // closure
      * @namespace miruken.callback
      * @class $
      */
-     miruken.package(this, {
+    var callback = new base2.Package(this, {
         name:    "callback",
+        version: miruken.version,
+        parent:  miruken,
         imports: "miruken",
-        exports: "CallbackHandler,CascadeCallbackHandler,CompositeCallbackHandler," +
-                 "InvocationOptions,Batching,Batcher,Resolution,Composition,HandleMethod," +
-                 "ResolveMethod,RejectedError,TimeoutError,$handle,$callbacks,$define," +
-                 "$provide,$lookup,$NOT_HANDLED"
+        exports: "CallbackHandler,CascadeCallbackHandler,CompositeCallbackHandler,InvocationOptions,Resolving,Resolution,Composition,HandleMethod,ResolveMethod,RejectedError,getEffectivePromise,$handle,$callbacks,$define,$provide,$lookup,$NOT_HANDLED"
     });
 
     eval(this.imports);
-
-    Promise.onPossiblyUnhandledRejection(Undefined);
 
     var _definitions = {},
         /**
@@ -2312,7 +2353,7 @@ new function () { // closure
          * @method $lookup  
          * @for miruken.callback.$
          */                
-        $lookup = $define('$lookup', Variance.Invariant),
+        $lookup = $define('$lookup' , Variance.Invariant),
         /**
          * return value to indicate a callback was not handled.
          * @property {Object} $NOT_HANDLED
@@ -2336,7 +2377,7 @@ new function () { // closure
      * @extends miruken.MetaMacro
      */
     var $callbacks = MetaMacro.extend({
-        execute: function (step, metadata, target, definition) {
+        apply: function (step, metadata, target, definition) {
             if ($isNothing(definition)) {
                 return;
             }
@@ -2345,8 +2386,16 @@ new function () { // closure
             if (target === clazz.prototype) {
                 target = clazz;
             }
-            for (var tag in _definitions) {
-                var list = this.extractProperty(tag, source, definition);
+            for (tag in _definitions) {
+                var list = null;
+                if (definition.hasOwnProperty(tag)) {
+                    list = definition[tag];
+                    delete definition[tag];
+                    delete source[tag];
+                }
+                if ($isFunction(list)) {
+                    list = list();
+                }
                 if (!list || list.length == 0) {
                     continue;
                 }
@@ -2396,53 +2445,59 @@ new function () { // closure
             this.extend({
                 /**
                  * Gets the type of method.
-                 * @property {number} type
-                 * @readOnly
+                 * @method getType
+                 * @returns {number} type of method.
                  */
-                get type() { return type; },
+                getType: function () { return type; },
                 /**
-                 * Gets the Protocol the method belongs to.
-                 * @property {miruken.Protocol} protocol
-                 * @readOnly
+                 * Gets the protocol the method belongs to.
+                 * @method getProtocol
+                 * @returns {miruken.Protocol} initiating protocol.
                  */
-                get protocol() { return protocol; },
+                getProtocol: function () { return protocol; },
                 /**
-                 * Gets the name of the method.
-                 * @property {string} methodName
-                 * @readOnly
+                 * Gets the method name.
+                 * @method getMethod
+                 * @returns {string} method name.
                  */
-                get methodName() { return methodName; },
+                getMethodName: function () { return methodName; },
                 /**
-                 * Gets the arguments of the method.
-                 * @property {Array} arguments
-                 * @readOnly
+                 * Gets the method arguments.
+                 * @method getArguments
+                 * @returns {Array} method arguments.
                  */
-                get arguments() { return args; },
+                getArguments: function () { return args; },
                 /**
-                 * Get/sets the return value of the method.
-                 * @property {Any} returnValue.
+                 * Gets the method return value.
+                 * @method getReturnValue
+                 * @returns {Any} method return value.
                  */
-                get returnValue() { return _returnValue; },
-                set returnValue(value) { _returnValue = value; },
+                getReturnValue: function () { return _returnValue; },
                 /**
-                 * Gets/sets the execption raised by the method.
-                 * @property {Any} method exception.
+                 * Sets the method return value.
+                 * @method setReturnValue
+                 * @param   {Any} value  - new return value
                  */
-                get exception() { return _exception; },
-                set exception(exception) { _exception = exception; },
+                setReturnValue: function (value) { _returnValue = value; },
                 /**
-                 * Gets/sets the effective callback result.
-                 * @property {Any} callback result
-                 */                
-                get callbackResult() { return _returnValue; },
-                set callbackResult(value) { _returnValue = value; },
+                 * Gets the method execption.
+                 * @method getException
+                 * @returns {Error} method exception.
+                 */
+                getException: function () { return _exception; },
+                /**
+                 * Sets the method exception.
+                 * @method setException
+                 * @param   {Error}  exception  - new exception
+                 */
+                setException: function (exception) { _exception = exception; },
                 /**
                  * Attempts to invoke the method on the target.<br/>
                  * During invocation, the receiver will have access to a global **$composer** property
                  * representing the initiating {{#crossLink "miruken.callback.CallbackHandler"}}{{/crossLink}}.
                  * @method invokeOn
-                 * @param   {Object}                            target    -  method receiver
-                 * @param   {miruken.callback.CallbackHandler}  composer  -  composition handler
+                 * @param   {Object}                            target  - method receiver
+                 * @param   {miruken.callback.CallbackHandler}  composer  - composition handler
                  * @returns {boolean} true if the method was accepted.
                  */
                 invokeOn: function (target, composer) {
@@ -2456,8 +2511,8 @@ new function () { // closure
                             return false;
                         }                    
                     }
-                    var oldComposer = global.$composer;                    
                     try {
+                        var oldComposer = global.$composer;
                         global.$composer = composer;
                         switch (type) {
                             case HandleMethod.Get:
@@ -2474,7 +2529,6 @@ new function () { // closure
                             return false;
                         }
                         _returnValue = result;
-                        return true;                        
                     } catch (exception) {
                         _exception = exception;
                         throw exception;
@@ -2485,6 +2539,7 @@ new function () { // closure
                             delete global.$composer;
                         }
                     }
+                    return true;
                 }
             });
         }
@@ -2536,27 +2591,6 @@ new function () { // closure
                     var handled = false,
                         targets = composer.resolveAll(protocol);
                     
-                    if ($isPromise(targets)) {
-                        var that = this;
-                        this.returnValue = new Promise(function (resolve, reject) {
-                            targets.then(function (targets) {
-                                invokeTargets.call(that, targets);
-                                if (that.execption) {
-                                    reject(that.exeception);
-                                } else if (handled) {
-                                    resolve(that.returnValue);
-                                } else if (required) {
-                                    reject(new TypeError(format("Object %1 has no method '%2'", composer, methodName)));
-                                } else {
-                                    resolve();
-                                }
-                            }, reject);
-                        });
-                        return true;
-                    }
-                    
-                    invokeTargets.call(this, targets);
-
                     function invokeTargets(targets) {
                         for (var i = 0; i < targets.length; ++i) {
                             handled = handled | this.invokeOn(targets[i], composer);
@@ -2565,7 +2599,27 @@ new function () { // closure
                             }
                         }
                     }
-                                        
+                    
+                    if ($isPromise(targets)) {
+                        var that = this;
+                        this.setReturnValue(new Promise(function (resolve, reject) {
+                            targets.then(function (targets) {
+                                invokeTargets.call(that, targets);
+                                if (that.execption) {
+                                    reject(that.exeception);
+                                } else if (handled) {
+                                    resolve(that.getReturnValue());
+                                } else if (required) {
+                                    reject(new TypeError(format("Object %1 has no method '%2'", composer, methodName)));
+                                } else {
+                                    resolve();
+                                }
+                            });
+                        }));
+                        return true;
+                    }
+                    
+                    invokeTargets.call(this, targets);
                     return handled;
                 }
             });
@@ -2580,61 +2634,38 @@ new function () { // closure
      * @param   {boolean}  many  -  lookup cardinality
      * @extends Base
      */
-    var Lookup = Base.extend({
+    var Lookup = Base.extend(
+        $inferProperties, {
         constructor: function (key, many) {
             if ($isNothing(key)) {
                 throw new TypeError("The key is required.");
             }
             many = !!many;
-            var _results = [], _result,
+            var _results = [],
                 _instant = $instant.test(key);
             this.extend({
                 /**
                  * Gets the lookup key.
                  * @property {Any} key
-                 * @readOnly
                  */
-                get key() { return key; },
+                getKey: function () { return key; },
                 /**
                  * true if lookup all, false otherwise.
                  * @property {boolean} many
-                 * @readOnly
                  */
-                get isMany() { return many; },
+                isMany: function () { return many; },
                 /**
                  * Gets the matching results.
                  * @property {Array} results
-                 * @readOnly
                  */
-                get results() { return _results; },
-                /**
-                 * Gets/sets the effective callback result.
-                 * @property {Any} callback result
-                 */                
-                get callbackResult() {
-                    if (_result === undefined) {
-                        if (!many) {
-                            if (_results.length > 0) {
-                                _result = _results[0];
-                            }
-                        } else if (_instant) {
-                            _result = Array2.flatten(_results);
-                        } else {
-                            _result = Promise.all(_results).then(Array2.flatten);
-                        }
-                    }
-                    return _result;
-                },
-                set callbackResult(value) { _result = value; },
+                getResults: function () { return _results; },
                 /**
                  * Adds a lookup result.
                  * @param  {Any}  reault - lookup result
                  */
                 addResult: function (result) {
-                    if ((many || _results.length === 0) &&
-                        !(_instant && $isPromise(result))) {
+                    if (!(_instant && $isPromise(result))) {
                         _results.push(result);
-                        _result = undefined;
                     }
                 }
             });
@@ -2649,68 +2680,43 @@ new function () { // closure
      * @param   {boolean}  many      -  deferred cardinality
      * @extends Base
      */
-    var Deferred = Base.extend({
+    var Deferred = Base.extend(
+        $inferProperties, {
         constructor: function (callback, many) {
             if ($isNothing(callback)) {
                 throw new TypeError("The callback is required.");
             }
             many = !!many;
-            var _pending = [],
-                _tracked, _result;
+            var _pending = [];
             this.extend({
                 /**
                  * true if handle all, false otherwise.
                  * @property {boolean} many
-                 * @readOnly
                  */
-                get isMany() { return many; },
+                isMany: function () { return many; },
                 /**
                  * Gets the callback.
                  * @property {Object} callback
-                 * @readOnly
                  */
-                get callback() { return callback; },
+                getCallback: function () { return callback; },
                 /**
                  * Gets the pending promises.
                  * @property {Array} pending
-                 * @readOnly
                  */
-                get pending() { return _pending; },
-                /**
-                 * Gets/sets the effective callback result.
-                 * @property {Any} callback result
-                 */                
-                get callbackResult() {
-                    if (_result === undefined) {
-                        if (_pending.length === 1) {
-                            _result = Promise.resolve(_pending[0]).then(True);
-                        } else if (_pending.length > 1) {
-                            _result = Promise.all(_pending).then(True);
-                        } else {
-                            _result = Promise.resolve(_tracked);
-                        }
-                    }
-                    return _result;
-                },
-                set callbackResult(value) { _result = value; },
+                getPending: function () { return _pending; },
                 /**
                  * Tracks a pending promise.
-                 * @param {Promise}  promise - handle promise
+                 * @param {miruken.Promise}  promise - handle promise
                  */
                 track: function (promise) {
-                    if ((many || _pending.length === 0) && $isPromise(promise)) {
+                    if ($isPromise(promise)) {
                         _pending.push(promise);
-                        _result = undefined;
-                    }
-                    if (!_tracked) {
-                        _tracked = true;
-                        _result  = undefined;                        
                     }
                 }
             });
         }
     });
-    
+
     /**
      * Callback representing the covariant resolution of a key.
      * @class Resolution
@@ -2719,76 +2725,46 @@ new function () { // closure
      * @param   {boolean}  many  -  resolution cardinality
      * @extends Base
      */
-    var Resolution = Base.extend({
+    var Resolution = Base.extend(
+        $inferProperties, {
         constructor: function (key, many) {
             if ($isNothing(key)) {
                 throw new TypeError("The key is required.");
             }
             many = !!many;
             var _resolutions = [],
-                _promised    = false, _result,
+                _promised    = false,
                 _instant     = $instant.test(key);
             this.extend({
                 /**
                  * Gets the key.
                  * @property {Any} key
-                 * @readOnly
                  */                
-                get key() { return key; },
+                getKey: function () { return key; },
                 /**
                  * true if resolve all, false otherwise.
-                 * @property {boolean} isMany
-                 * @readOnly
+                 * @property {boolean} many
                  */                
-                get isMany() { return many; },
+                isMany: function () { return many; },
                 /**
                  * true if resolve all is instant.  Otherwise a promise.
-                 * @property {boolean} instant
-                 * @readOnly
+                 * @property {boolean} isInstant
                  */
-                get instant() { return !_promised; },
+                isInstant: function () { return !_promised; },
                 /**
                  * Gets the resolutions.
                  * @property {Array} resolutions
-                 * @readOnly
                  */                
-                get resolutions() { return _resolutions; },
-                /**
-                 * Gets/sets the effective callback result.
-                 * @property {Any} callback result
-                 */
-                get callbackResult() {
-                    if (_result === undefined) {
-                        if (!many) {
-                            var resolutions = _flattenPrune(_resolutions);
-                            if (resolutions.length > 0) {
-                                _result = resolutions[0];
-                            }
-                        } else {
-                            _result = this.instant
-                                  ? _flattenPrune(_resolutions)
-                                  : Promise.all(_resolutions).then(_flattenPrune);
-                        }
-                    }
-                    return _result;
-                },
-                set callbackResult(value) { _result = value; },
+                getResolutions: function () { return _resolutions; },
                 /**
                  * Adds a resolution.
                  * @param {Any} resolution  -  resolution
                  */
                 resolve: function (resolution) {
-                    if (!many && _resolutions.length > 0) {
-                        return;
-                    }
                     var promised = $isPromise(resolution);
                     if (!_instant || !promised) {
                         _promised = _promised || promised;
-                        if (promised && many) {
-                            resolution = resolution.catch(Undefined);
-                        }
                         _resolutions.push(resolution);
-                        _result   = undefined;
                     }
                 }
             });
@@ -2808,33 +2784,18 @@ new function () { // closure
                 this.extend({
                     /**
                      * Gets the callback.
-                     * @property {Object} callback
-                     * @readOnly
+                     * @method getCallback
+                     * @returns {Object} callback
                      */
-                    get callback() { return callback; },
-                    /**
-                     * Gets/sets the effective callback result.
-                     * @property {Any} callback result
-                     */                
-                    get callbackResult() {
-                        return callback.callbackResult;
-                    },
-                    set callbackResult(value) {
-                        callback.callbackResult = value;
-                    }
+                    getCallback: function () { return callback; },
                 });
             }
-        }
-    }, {
-        isComposed: function (callback, type) {
-            return callback instanceof this &&
-                callback.callback instanceof type;
         }
     });
 
     var compositionScope = $decorator({
         handleCallback: function (callback, greedy, composer) {
-            if (callback.constructor !== Composition) {
+            if ($classOf(callback) !== Composition) {
                 callback = new Composition(callback);
             }
             return this.base(callback, greedy, composer);
@@ -2849,16 +2810,18 @@ new function () { // closure
      * @param  {Object}  [delegate]  -  delegate
      * @extends Base
      */
-    var CallbackHandler = Base.extend($callbacks, {
-        constructor: function (delegate) {
-            this.extend({
-                /**
-                 * Gets the delegate.
-                 * @property {Object} delegate
-                 * @readOnly
-                 */            
-                get delegate() { return delegate; }
-            });
+    var CallbackHandler = Base.extend(
+        $callbacks, {
+        constructor: function _(delegate) {
+            var spec = _.spec || (_.spec = {});
+            spec.value = delegate;
+            /**
+             * Gets the delegate.
+             * @property {Object} delegate
+             * @readOnly
+             */            
+            Object.defineProperty(this, 'delegate', spec);
+            delete spec.value;
         },
         /**
          * Handles the callback.
@@ -2886,28 +2849,32 @@ new function () { // closure
          * @returns {boolean} true if the callback was handled, false otherwise.
          */
         handleCallback: function (callback, greedy, composer) {
-            return $handle.dispatch(this, callback, null, composer, greedy);
+            return callback instanceof ResolveMethod
+                ? callback.invokeResolve(composer)
+                : $handle.dispatch(this, callback, null, composer, greedy);
         },
         $handle:[
             Lookup, function (lookup, composer) {
-                return $lookup.dispatch(this, lookup,lookup.key, composer, lookup.isMany, lookup.addResult);
+                return $lookup.dispatch(this, lookup,lookup.getKey(), composer, 
+                                        lookup.isMany(), lookup.addResult);
             },
             Deferred, function (deferred, composer) {
-                return $handle.dispatch(this, deferred.callback, null, composer, deferred.isMany, deferred.track);
+                return $handle.dispatch(this, deferred.getCallback(), null, composer,
+                                        deferred.isMany(), deferred.track);
             },
             Resolution, function (resolution, composer) {
-                var key      = resolution.key,
-                    many     = resolution.isMany,
+                var key      = resolution.getKey(),
+                    many     = resolution.isMany(),
                     resolved = $provide.dispatch(this, resolution, key, composer, many, resolution.resolve);
                 if (!resolved) { // check if delegate or handler implicitly satisfy key
                     var implied  = new _Node(key),
                         delegate = this.delegate;
                     if (delegate && implied.match($classOf(delegate), Variance.Contravariant)) {
-                        resolution.resolve(delegate);
+                        resolution.resolve($decorated(delegate, true));
                         resolved = true;
                     }
                     if ((!resolved || many) && implied.match($classOf(this), Variance.Contravariant)) {
-                        resolution.resolve(this);
+                        resolution.resolve($decorated(this, true));
                         resolved = true;
                     }
                 }
@@ -2916,12 +2883,9 @@ new function () { // closure
             HandleMethod, function (method, composer) {
                 return method.invokeOn(this.delegate, composer) || method.invokeOn(this, composer);
             },
-            ResolveMethod, function (method, composer) {
-                return method.invokeResolve(composer);
-            },
             Composition, function (composable, composer) {
-                var callback = composable.callback;
-                return !!(callback && $handle.dispatch(this, callback, null, composer));
+                return $isFunction(composable.getCallback) &&
+                                   $handle.dispatch(this, composable.getCallback(), null, composer);
             }
         ],
         /**
@@ -2939,7 +2903,8 @@ new function () { // closure
     });
 
     /**
-     * Identifies a rejected callback.  This usually occurs from aspect processing.
+     * Identifies a rejected callback.  This usually occurs from aspect processing.<br/>
+     * See {{#crossLink "miruken.callback.CallbackHandlerAspect"}}{{/crossLink}}
      * @class RejectedError
      * @constructor
      * @param {Object}  callback  -  rejected callback
@@ -2960,32 +2925,6 @@ new function () { // closure
     }
     RejectedError.prototype             = new Error;
     RejectedError.prototype.constructor = RejectedError;
-
-    /**
-     * Identifies a timeout error.
-     * @class TimeoutError
-     * @constructor
-     * @param {Object}  callback  -  timed out callback
-     * @param {string}  message   -  timeout message
-     * @extends Error
-     */
-    function TimeoutError(callback, message) {
-        /**
-         * Gets the rejected callback.
-         * @property {Object} callback
-         */         
-        this.callback = callback;
-        
-        this.message = message || "Timeout occurred";
-                    
-        if (Error.captureStackTrace) {
-            Error.captureStackTrace(this, this.constructor);
-        } else {
-            Error.call(this);
-        }
-    }
-    TimeoutError.prototype             = new Error;
-    TimeoutError.prototype.constructor = TimeoutError;
     
     /**
      * Represents a two-way {{#crossLink "miruken.callback.CallbackHandler"}}{{/crossLink}} path.
@@ -2996,36 +2935,39 @@ new function () { // closure
      * @extends miruken.callback.CallbackHandler
      */
     var CascadeCallbackHandler = CallbackHandler.extend({
-        constructor: function (handler, cascadeToHandler) {
+        constructor: function _(handler, cascadeToHandler) {
             if ($isNothing(handler)) {
                 throw new TypeError("No handler specified.");
             } else if ($isNothing(cascadeToHandler)) {
                 throw new TypeError("No cascadeToHandler specified.");
             }
-            handler          = handler.toCallbackHandler();
-            cascadeToHandler = cascadeToHandler.toCallbackHandler();
-            this.extend({
-                /**
-                 * Gets the primary handler.
-                 * @property {miruken.callback.CallbackHandler} handler
-                 * @readOnly
-                 */
-                get handler() { return handler; },
-                /**
-                 * Gets the secondary handler.
-                 * @property {miruken.callback.CallbackHandler} cascadeToHandler
-                 * @readOnly
-                 */
-                get cascadeToHandler() { return cascadeToHandler; }                
-            });
+            var spec = _.spec || (_.spec = {});
+            spec.value = handler.toCallbackHandler();
+            /**
+             * Gets the primary handler.
+             * @property {miruken.callback.CallbackHandler} handler
+             * @readOnly
+             */                                                
+            Object.defineProperty(this, 'handler', spec);
+            spec.value = cascadeToHandler.toCallbackHandler();
+            /**
+             * Gets the secondary handler.
+             * @property {miruken.callback.CallbackHandler} cascadeToHandler
+             * @readOnly
+             */                                                            
+            Object.defineProperty(this, 'cascadeToHandler', spec);
+            delete spec.value;
         },
         handleCallback: function (callback, greedy, composer) {
-            var handled = this.base(callback, greedy, composer);
-            return !!(greedy
-                ? handled | (this.handler.handleCallback(callback, true, composer)
+            var handled = greedy
+                ? (this.handler.handleCallback(callback, true, composer)
                    | this.cascadeToHandler.handleCallback(callback, true, composer))
-                : handled || (this.handler.handleCallback(callback, false, composer)
-                   || this.cascadeToHandler.handleCallback(callback, false, composer)));
+                : (this.handler.handleCallback(callback, false, composer)
+                   || this.cascadeToHandler.handleCallback(callback, false, composer));
+            if (!handled || greedy) {
+                handled = this.base(callback, greedy, composer) || handled;
+            }
+            return !!handled;
         }
     });
 
@@ -3050,7 +2992,6 @@ new function () { // closure
                 /**
                  * Adds the callback handlers to the composite.
                  * @method addHandlers
-                 * @param   {Any}  ...handlers  -  handlers to add
                  * @returns {miruken.callback.CompositeCallbackHandler}  composite
                  * @chainable
                  */
@@ -3063,26 +3004,8 @@ new function () { // closure
                     return this;
                 },
                 /**
-                 * Adds the callback handlers to the composite.
-                 * @method addHandlers
-                 * @param   {number}  atIndex      -  index to insert at
-                 * @param   {Any}     ...handlers  -  handlers to insert
-                 * @returns {miruken.callback.CompositeCallbackHandler}  composite
-                 * @chainable
-                 */
-                insertHandlers: function (atIndex /*,handlers*/) {
-                    var index = 0;
-                    Array2.flatten(arguments).forEach(function (handler) {
-                        if (handler) {
-                            _handlers.splice(atIndex + index++, 0,  handler.toCallbackHandler());
-                        }
-                    });
-                    return this;                    
-                },                
-                /**
                  * Removes callback handlers from the composite.
                  * @method removeHandlers
-                 * @param   {Any}  ...handlers  -  handlers to remove
                  * @returns {miruken.callback.CompositeCallbackHandler}  composite
                  * @chainable
                  */
@@ -3103,15 +3026,19 @@ new function () { // closure
                     return this;
                 },
                 handleCallback: function (callback, greedy, composer) {
-                    var handled = this.base(callback, greedy, composer);
-                    if (handled && !greedy) { return true; }
-                    var count   = _handlers.length;
+                    var handled = false,
+                        count   = _handlers.length;
                     for (var idx = 0; idx < count; ++idx) {
                         var handler = _handlers[idx];
                         if (handler.handleCallback(callback, greedy, composer)) {
-                            if (!greedy) { return true; }
+                            if (!greedy) {
+                                return true;
+                            }
                             handled = true;
                         }
+                    }
+                    if (!handled || greedy) {
+                        handled = this.base(callback, greedy, composer) || handled;
                     }
                     return handled;
                 }
@@ -3181,9 +3108,9 @@ new function () { // closure
     /**
      * InvocationOptions flags enum
      * @class InvocationOptions
-     * @extends miruken.Flags
+     * @extends miruken.Enum
      */
-    var InvocationOptions = Flags({
+    var InvocationOptions = {
         /**
          * @property {number} None
          */
@@ -3206,25 +3133,26 @@ new function () { // closure
         /**
          * Uses Resolve to determine instances to invoke.
          * @property {number} Resolve
-         */
-        Resolve: 1 << 3,
-        /**
-         * Publishes invocation to all handlers.
-         * @property {number} Notify
          */                
-        Notify: (1 << 0) | (1 << 1)
-    });
+        Resolve: 1 << 3        
+    };
+    /**
+     * Publishes invocation to all handlers.
+     * @property {number} Notify
+     */                
+    InvocationOptions.Notify = InvocationOptions.Broadcast | InvocationOptions.BestEffort;
+    InvocationOptions = Enum(InvocationOptions);
 
     /**
      * Captures invocation semantics.
      * @class InvocationSemantics
      * @constructor
      * @param  {miruken.callback.InvocationOptions}  options  -  invocation options.
-     * @extends Composition
+     * @extends Base
      */
     var InvocationSemantics = Composition.extend({
         constructor: function (options) {
-            var _options   = InvocationOptions.None.addFlag(options),
+            var _options   = options || InvocationOptions.None,
                 _specified = _options;
             this.extend({
                 /**
@@ -3234,7 +3162,7 @@ new function () { // closure
                  * @returns {boolean} true if invocation option enabled, false otherwise.
                  */
                 getOption: function (option) {
-                    return _options.hasFlag(option);
+                    return (_options & option) === option;
                 },
                 /**
                  * Sets the invocation option.
@@ -3243,10 +3171,12 @@ new function () { // closure
                  * @param   {boolean}  enabled  -  true if enable option, false to clear.
                  */                
                 setOption: function (option, enabled) {
-                    _options = enabled
-                             ? _options.addFlag(option)
-                             : _options.removeFlag(option);
-                    _specified = _specified.addFlag(option);
+                    if (enabled) {
+                        _options = _options | option;
+                    } else {
+                        _options = _options & (~option);
+                    }
+                    _specified = _specified | option;
                 },
                 /**
                  * Determines if the invocation option was specified.
@@ -3255,7 +3185,7 @@ new function () { // closure
                  * @returns {boolean} true if invocation option specified, false otherwise.
                  */                
                 isSpecified: function (option) {
-                    return _specified.hasFlag(option);
+                    return (_specified & option) === option;
                 }
             });
         },
@@ -3265,9 +3195,8 @@ new function () { // closure
          * @param   {miruken.callback.InvocationSemantics}  semantics  -  receives invocation semantics
          */                
         mergeInto: function (semantics) {
-            var items = InvocationOptions.items;
-            for (var i = 0; i < items.length; ++i) {
-                var option = +items[i];
+            for (var index = 0; index <= 3; ++index) {
+                var option = (1 << index);
                 if (this.isSpecified(option) && !semantics.isSpecified(option)) {
                     semantics.setOption(option, this.getOption(option));
                 }
@@ -3276,55 +3205,11 @@ new function () { // closure
     });
 
     /**
-     * Protocol to participate in batched operations.
-     * @class Batching
-     * @extends miruken.StrictProtocol
+     * Protocol marking {{#crossLink "miruken.callback.InvocationOptions/Resolve:property"}}{{/crossLink}} semantics.
+     * @class Resolving
+     * @extends miruken.Protocol
      */
-    var Batching = StrictProtocol.extend({
-        /**
-         * Completes the batching operation.
-         * @method complete
-         * @param   {miruken.callback.CallbackHandler}  composer  - composition handler
-         * @returns {Any} the batching result.
-         */                
-        complete: function (composer) {}
-    });
-    
-    /**
-     * Coordinates batching operations through the protocol
-     * {{#crossLink "miruken.callback.Batching"}}{{/crossLink}}.
-     * @class Batcher
-     * @constructor
-     * @param   {string}            [tag]           -  tags the batch
-     * @param   {miruken.Protocol}  [...protocols]  -  protocols to batch
-     * @extends miruken.callback.CompositeCallbackHandler
-     * @uses miruken.callback.Batching
-     */
-    var BatchingComplete = Batching.extend(),
-        Batcher = CompositeCallbackHandler.extend(BatchingComplete, {
-        constructor: function (tag, protocols) {
-            this.base();
-            protocols = protocols && Array.prototype.concat.apply([], arguments);            
-            this.extend({
-                get tag() { return tag; },
-                shouldBatch: function (protocol) {
-                    return !protocols || (protocol && protocols.indexOf(protocol) >= 0); 
-                }
-            });
-        },
-        complete: function (composer) {
-            var promise = false,
-                results = Array2.reduce(this.getHandlers(), function (res, handler) {
-                    var result = Batching(handler).complete(composer);
-                    if (result) {
-                        promise = promise || $isPromise(result);
-                        res.push(result);
-                        return res;
-                    }
-                }, []);
-            return promise ? Promise.all(results) : results;
-        }
-    });
+    var Resolving = Protocol.extend();
     
     /**
      * Delegates properties and methods to a callback handler using 
@@ -3335,10 +3220,17 @@ new function () { // closure
      * @extends miruken.Delegate
      */
     var InvocationDelegate = Delegate.extend({
-        constructor: function (handler) {
-            this.extend({
-                get handler() { return handler; }
-            });
+        constructor: function _(handler) {
+            var spec = _.spec || (_.spec = {});
+            spec.value = handler;
+            /**
+             * Gets the handler that handles the 
+             * {{#crossLink "miruken.callback.HandleMethod"}}{{/crossLink}}.
+             * @property {miruken.callback.CallbackHandler} handler
+             * @readOnly
+             */                                                
+            Object.defineProperty(this, 'handler', spec);
+            delete spec.value;
         },
         get: function (protocol, propertyName, strict) {
             return _delegateInvocation(this, HandleMethod.Get, protocol, propertyName, null, strict);
@@ -3352,28 +3244,21 @@ new function () { // closure
     });
 
     function _delegateInvocation(delegate, type, protocol, methodName, args, strict) {
-        var broadcast  = false,
-            bestEffort = false,            
-            useResolve = protocol.conformsTo(Resolving),
-            handler    = delegate.handler;
-
-        var semantics = new InvocationSemantics;
-        if (handler.handle(semantics, true)) {
-            strict     = !!(strict | semantics.getOption(InvocationOptions.Strict));
-            broadcast  = semantics.getOption(InvocationOptions.Broadcast);
-            bestEffort = semantics.getOption(InvocationOptions.BestEffort);
-            useResolve = useResolve || semantics.getOption(InvocationOptions.Resolve);
-        }
-        
-        var handleMethod = useResolve
-          ? new ResolveMethod(type, protocol, methodName, args, strict, broadcast, !bestEffort)
-          : new HandleMethod(type, protocol, methodName, args, strict);
-        
+        var handler   = delegate.handler,
+            semantics = new InvocationSemantics;
+        handler.handle(semantics, true);
+        strict = !!(strict | semantics.getOption(InvocationOptions.Strict));
+        var broadcast    = semantics.getOption(InvocationOptions.Broadcast),
+            bestEffort   = semantics.getOption(InvocationOptions.BestEffort),
+            useResolve   = semantics.getOption(InvocationOptions.Resolve)
+                        || protocol.conformsTo(Resolving),
+            handleMethod = useResolve
+                         ? new ResolveMethod(type, protocol, methodName, args, strict, broadcast, !bestEffort)
+                         : new HandleMethod(type, protocol, methodName, args, strict);
         if (!handler.handle(handleMethod, broadcast && !useResolve) && !bestEffort) {
             throw new TypeError(format("Object %1 has no method '%2'", handler, methodName));
         }
-        
-        return handleMethod.returnValue;
+        return handleMethod.getReturnValue();
     }
 
     CallbackHandler.implement({
@@ -3424,27 +3309,9 @@ new function () { // closure
             return this.decorate({
                 handleCallback: function (callback, greedy, composer) {
                     var handled = false;
-                    if (Composition.isComposed(callback, InvocationSemantics)) {
-                        return false;
-                    }
                     if (callback instanceof InvocationSemantics) {
                         semantics.mergeInto(callback);
                         handled = true;
-                    } else if (!greedy) {
-                        // Greedy must be false when resolving since Resolution.isMany
-                        // represents greedy in that case
-                        if (semantics.isSpecified(
-                            InvocationOptions.Broadcast | InvocationOptions.Resolve)) {
-                            greedy = semantics.getOption(InvocationOptions.Broadcast)
-                                  && !semantics.getOption(InvocationOptions.Resolve);
-                        } else {
-                            var inv = new InvocationSemantics;
-                            if (this.handle(inv, true) &&
-                                inv.isSpecified(InvocationOptions.Broadcast)) {
-                                greedy = inv.getOption(InvocationOptions.Broadcast)
-                                     && !inv.getOption(InvocationOptions.Resolve);
-                            }
-                        }
                     }
                     if (greedy || !handled) {
                         handled = handled | this.base(callback, greedy, composer);
@@ -3466,8 +3333,9 @@ new function () { // closure
          */                        
         defer: function (callback) {
             var deferred = new Deferred(callback);
-            this.handle(deferred, false);
-            return deferred.callbackResult;            
+            return this.handle(deferred, false, global.$composer)
+                 ? Promise.all(deferred.getPending()).return(true)
+                 : Promise.resolve(false);
         },
         /**
          * Asynchronusly handles the callback greedily.
@@ -3479,8 +3347,9 @@ new function () { // closure
          */                                
         deferAll: function (callback) {
             var deferred = new Deferred(callback, true);
-            this.handle(deferred, true);
-            return deferred.callbackResult;
+            return this.handle(deferred, true, global.$composer)
+                 ? Promise.all(deferred.getPending()).return(true)
+                 : Promise.resolve(false);
         },
         /**
          * Resolves the key.
@@ -3492,8 +3361,11 @@ new function () { // closure
          */                                
         resolve: function (key) {
             var resolution = (key instanceof Resolution) ? key : new Resolution(key);
-            if (this.handle(resolution, false)) {
-                return resolution.callbackResult;
+            if (this.handle(resolution, false, global.$composer)) {
+                var resolutions = resolution.getResolutions();
+                if (resolutions.length > 0) {
+                    return resolutions[0];
+                }
             }
         },
         /**
@@ -3506,7 +3378,15 @@ new function () { // closure
          */                                        
         resolveAll: function (key) {
             var resolution = (key instanceof Resolution) ? key : new Resolution(key, true);
-            return this.handle(resolution, true) ? resolution.callbackResult : [];
+            if (this.handle(resolution, true, global.$composer)) {
+                var resolutions = resolution.getResolutions();
+                if (resolutions.length > 0) {
+                    return resolution.instant
+                         ? Array2.flatten(resolutions)
+                         : Promise.all(resolutions).then(Array2.flatten);
+                }
+            }
+            return [];
         },
         /**
          * Looks up the key.
@@ -3517,8 +3397,11 @@ new function () { // closure
          */                                        
         lookup: function (key) {
             var lookup = (key instanceof Lookup) ? key : new Lookup(key);
-            if (this.handle(lookup, false)) {
-                return lookup.callbackResult;
+            if (this.handle(lookup, false, global.$composer)) {
+                var results = lookup.getResults();
+                if (results.length > 0) {
+                    return results[0];
+                }
             }
         },
         /**
@@ -3530,9 +3413,15 @@ new function () { // closure
          */                                                
         lookupAll: function (key) {
             var lookup = (key instanceof Lookup) ? key : new Lookup(key, true);
-            return this.handle(lookup, true)
-                 ?  lookup.callbackResult
-                 : [];
+            if (this.handle(lookup, true, global.$composer)) {
+                var results = lookup.getResults();
+                if (results.length > 0) {
+                    return $instant.test(key)
+                         ? Array2.flatten(resolutions)
+                         : Promise.all(results).then(Array2.flatten);
+                }
+            }
+            return [];
         },
         /**
          * Decorates the handler.
@@ -3571,56 +3460,37 @@ new function () { // closure
         /**
          * Decorates the handler for applying aspects to callbacks.
          * @method aspect
-         * @param   {Function}  before     -  before action.  Return false to reject
+         * @param   {Function}  before     -  before predicate
          * @param   {Function}  action     -  after action
          * @param   {boolean}   reentrant  -  true if reentrant, false otherwise
          * @returns {miruken.callback.CallbackHandler}  callback handler aspect.
-         * @throws  {RejectedError} An error if before returns an unaccepted promise.
          * @for miruken.callback.CallbackHandler
-         */
+         */                                                                
         aspect: function (before, after, reentrant) {
             return this.filter(function (callback, composer, proceed) {
                 if ($isFunction(before)) {
-                    var test = before(callback, composer);
+                    var test     = before(callback, composer),
+                        isMethod = callback instanceof HandleMethod;
                     if ($isPromise(test)) {
-                        var hasResult = "callbackResult" in callback,
-                            accept    = test.then(function (accepted) {
+                        var accept = test.then(function (accepted) {
                             if (accepted !== false) {
-                                _aspectProceed(callback, composer, proceed, after, accepted);
-                                return hasResult ? callback.callbackResult : true;
+                                _aspectProceed(callback, composer, proceed);
+                                return isMethod ? callback.getReturnValue() : true;
                             }
-                            return Promise.reject(new RejectedError(callback));
+                            return Promise.reject(new RejectedError);
                         });
-                        if (hasResult) {
-                            callback.callbackResult = accept;                            
+                        if (isMethod) {
+                            callback.setReturnValue(accept);
+                        } else if (callback instanceof Deferred) {
+                            callback.track(accept);
                         }
                         return true;
                     } else if (test === false) {
-                        throw new RejectedError(callback);
+                        return true;
                     }
                 }
-                return _aspectProceed(callback, composer, proceed, after, test);
-            }, reentrant);
-        },
-        /**
-         * Decorates the handler to handle definitions.
-         * @method $handle
-         * @param   {Array}  [definitions]  -  handler overrides
-         * @returns {miruken.callback.CallbackHandler}  decorated callback handler.
-         * @for miruken.callback.CallbackHandler
-         */
-        $$handle: function (definitions) {
-            return this.decorate({$handle: definitions});
-        },
-        /**
-         * Decorates the handler to provide definitions.
-         * @method $handle
-         * @param   {Array}  [definitions]  -  provider overrides
-         * @returns {miruken.callback.CallbackHandler}  decorated callback handler.
-         * @for miruken.callback.CallbackHandler
-         */
-        $$provide: function (definitions) {
-            return this.decorate({$provide: definitions});
+                return _aspectProceed(callback, composer, proceed, after);
+            });
         },
         /**
          * Decorates the handler to conditionally handle callbacks.
@@ -3633,9 +3503,9 @@ new function () { // closure
             var when = new _Node(constraint),
                 condition = function (callback) {
                     if (callback instanceof Deferred) {
-                        return when.match($classOf(callback.callback), Variance.Contravariant);
+                        return when.match($classOf(callback.getCallback()), Variance.Contravariant);
                     } else if (callback instanceof Resolution) {
-                        return when.match(callback.key, Variance.Covariant);
+                        return when.match(callback.getKey(), Variance.Covariant);
                     } else {
                         return when.match($classOf(callback), Variance.Contravariant);
                     }
@@ -3650,7 +3520,7 @@ new function () { // closure
          * Builds a handler chain.
          * @method next
          * @param   {Arguments}  arguments  -  handler chain members
-         * @returns {miruken.callback.CallbackHandler}  chaining callback handler.
+         * @returns {miruken.callback.CallbackHandler}  chained callback handler.
          * @for miruken.callback.CallbackHandler
          */                                                                                
         next: function () {
@@ -3659,217 +3529,28 @@ new function () { // closure
             case 1:  return new CascadeCallbackHandler(this, arguments[0])
             default: return new CompositeCallbackHandler((Array2.unshift(arguments, this), arguments));
             }
-        },
-        /**
-         * Prevents continuous or concurrent handling on a target.
-         * @method $guard
-         * @param   {Object}  target              -  target to guard
-         * @param   {string}  [property='guard']  -  property for guard state
-         * @returns {miruken.callback.CallbackHandler}  guarding callback handler.
-         * @for miruken.callback.CallbackHandler
-         */        
-        $guard: function(target, property) {
-            if (target) {
-                var guarded = false;
-                property = property || "guarded";
-                var propExists = property in target;
-                return this.aspect(function () {
-                    if ((guarded = target[property])) {
-                        return false;
-                    }
-                    target[property] = true;
-                    return true;
-                }, function () {
-                    if (!guarded) {
-                        target[property] = undefined;
-                        if (!propExists) {
-                            delete target[property];
-                        }
-                    }
-                });
-            }
-            return this;
-        },
-        /**
-         * Tracks the activity counts associated with a target. 
-         * @method $activity
-         * @param   {Object}  target                 -  target to track
-         * @param   {Object}  [ms=50]                -  delay to wait before tracking
-         * @param   {string}  [property='activity']  -  property for activity state
-         * @returns {miruken.callback.CallbackHandler}  activity callback handler.
-         * @for miruken.callback.CallbackHandler
-         */                
-        $activity: function (target, ms, property) {
-            property = property || "$$activity";
-            var propExists = property in target;            
-            return this.aspect(function () {
-                var state = { enabled: false };
-                setTimeout(function () {
-                    if ("enabled" in state) {
-                        state.enabled = true;
-                        var activity = target[property] || 0;
-                        target[property] = ++activity;
-                    }
-                }, $isSomething(ms) ? ms : 50);
-                return state;
-            }, function (_, composer, state) {
-                if (state.enabled) {
-                    var activity = target[property];
-                    if (!activity || activity === 1) {
-                        target[property] = undefined;
-                        if (!propExists) {
-                            delete target[property];
-                        }
-                    } else {
-                        target[property] = --activity;
-                    }
-                }
-                delete state.enabled;
-            });
-        },
-        /**
-         * Ensures all return values are promises..
-         * @method $promises
-         * @returns {miruken.callback.CallbackHandler}  promising callback handler.
-         * @for miruken.callback.CallbackHandler
-         */                
-        $promise: function() {
-            return this.filter(function(callback, composer, proceed) {
-                try {                
-                    var handled = proceed();
-                    if (handled) {
-                        var result = callback.callbackResult;                    
-                        callback.callbackResult = $isPromise(result)
-                            ? result : Promise.resolve(result);
-                    }
-                    return handled;
-                } catch (ex) {
-                    callback.callbackResult = Promise.reject(ex);
-                    return true;
-                }
-            });
-        },        
-        /**
-         * Configures the receiver to set timeouts on all promises.
-         * @method $timeout
-         * @param   {number}             ms       -  duration before promise times out
-         * @param   {Function | Error}   [error]  -  error instance or custom error class
-         * @returns {miruken.callback.CallbackHandler}  timeout callback handler.
-         * @for miruken.callback.CallbackHandler
-         */        
-        $timeout: function(ms, error) {
-            return this.filter(function(callback, composer, proceed) {
-                var handled = proceed();
-                if (handled) {
-                    var result = callback.callbackResult;
-                    if ($isPromise(result)) {
-                        callback.callbackResult = new Promise(function (resolve, reject) {
-                            var timeout;
-                            result.then(function (res) {
-                                if (timeout) {
-                                    clearTimeout(timeout);
-                                }
-                                resolve(res);
-                            }, function (err) {
-                                if (timeout) {
-                                    clearTimeout(timeout);
-                                }
-                                reject(err);                                
-                            });
-                            timeout = setTimeout(function () {
-                                if (!error) {
-                                    error = new TimeoutError(callback);
-                                } else if ($isFunction(error)) {
-                                    error = error.new(callback);
-                                }
-                                if ($isFunction(result.reject)) {
-                                    result.reject(error);  // TODO: cancel
-                                }
-                                reject(error);
-                            }, ms);
-                        });
-                    }
-                }
-                return handled;
-            });
-        },
-        /**
-         * Prepares the CallbackHandler for batching.
-         * @method $batch
-         * @param   {string}            [tag]           -  tags the batch
-         * @param   {miruken.Protocol}  [...protocols]  -  protocols to batch
-         * @returns {miruken.callback.CallbackHandler}  batching callback handler.
-         * @for miruken.callback.CallbackHandler
-         */
-        $batch: function(tag, protocols) {
-            if (arguments.length === 1 && !$isString(tag)) {
-                protocols = tag;
-                tag       = undefined;
-            }            
-            var _batcher  = new Batcher(tag, protocols),
-                _complete = false,
-                _promises = [];
-            return this.decorate({
-                $provide: [Batcher, function () { return _batcher; }],
-                handleCallback: function (callback, greedy, composer) {
-                    var handled = false;
-                    if (_batcher) {
-                        var b = _batcher;
-                        if (_complete && !(callback instanceof Composition)) {
-                            _batcher = null;
-                        }
-                        if ((handled = b.handleCallback(callback, greedy, composer)) && !greedy) {
-                            if (_batcher) {
-                                var result = callback.callbackResult;
-                                if ($isPromise(result)) {
-                                    _promises.push(result);
-                                }
-                            }
-                            return true;
-                        }
-                    }
-                    return this.base(callback, greedy, composer) || handled;
-                },
-                dispose: function () {
-                    _complete = true;
-                    var results = BatchingComplete(this).complete(this);
-                    return _promises.length > 0
-                         ? Promise.all(_promises).then(function () { return results; })
-                         : results;
-                }
-            });            
-        },
-        getBatcher: function (protocol) {
-            var batcher = this.resolve(Batcher);
-            if (batcher && (!protocol || batcher.shouldBatch(protocol))) {
-                return batcher;
-            }
         }
     });
 
-    function _aspectProceed(callback, composer, proceed, after, state) {
+    function _aspectProceed(callback, composer, proceed, after) {
         var promise;
         try {
             var handled = proceed();
-            if (handled) {
-                var result = callback.callbackResult;
-                if ($isPromise(result)) {
-                    promise = result;
-                    // Use 'fulfilled' or 'rejected' handlers instead of 'finally' to ensure
-                    // aspect boundary is consistent with synchronous invocations and avoid
-                    // reentrancy issues.
-                    if ($isFunction(after))
-                        promise.then(function (result) {
-                            after(callback, composer, state);
-                        }).catch(function (error) {
-                            after(callback, composer, state);
-                        });
-                }
+            if (handled && (promise = getEffectivePromise(callback))) {
+                // Use 'fulfilled' or 'rejected' handlers instead of 'finally' to ensure
+                // aspect boundary is consistent with synchronous invocations and avoid
+                // reentrancy issues.
+                if ($isFunction(after))
+                    promise.then(function (result) {
+                        after(callback, composer);
+                    }, function (error) {
+                        after(callback, composer);
+                    });
             }
             return handled;
         } finally {
             if (!promise && $isFunction(after)) {
-                after(callback, composer, state);
+                after(callback, composer);
             }
         }
     }
@@ -3892,22 +3573,21 @@ new function () { // closure
 
         var handled, comparer;
         variance = variance || Variance.Contravariant;
-        if (!(variance instanceof Variance)) {
-            throw new TypeError("Invalid variance type supplied");
-        }        
         switch (variance) {
             case Variance.Covariant:
-                handled  = _requiresResult;
-                comparer = _compareCovariant; 
+                handled  = _resultRequired;
+                comparer = _covariantComparer; 
                 break;
             case Variance.Contravariant:
-                handled  = _impliesSuccess;
-                comparer = _compareContravariant; 
+                handled  = _successImplied;
+                comparer = _contravariantComparer; 
                 break;
             case Variance.Invariant:
-                handled  = _requiresResult;
-                comparer = _compareInvariant; 
+                handled  = _resultRequired;
+                comparer = _invariantComparer; 
                 break;
+            default:
+                throw new Error("Variance must be Covariant, Contravariant or Invariant");
         }
 
         function definition(owner, constraint, handler, removed) {
@@ -4115,18 +3795,15 @@ new function () { // closure
         return false;
     }
 
-    function _matchString(match, variance) {
-        if (!$isString(match)) { return false;}
-        return variance === Variance.Invariant
-            ? this.constraint == match
-            : this.constraint.toLowerCase() == match.toLowerCase();
+    function _matchString(match) {
+        return $isString(match) && this.constraint == match;
     }
 
     function _matchRegExp(match, variance) {
         return (variance !== Variance.Invariant) && this.constraint.test(match);
     }
 
-    function _compareCovariant(node, insert) {
+    function _covariantComparer(node, insert) {
         if (insert.match(node.constraint, Variance.Invariant)) {
             return 0;
         } else if (insert.match(node.constraint, Variance.Covariant)) {
@@ -4135,7 +3812,7 @@ new function () { // closure
         return 1;
     }
     
-    function _compareContravariant(node, insert) {
+    function _contravariantComparer(node, insert) {
         if (insert.match(node.constraint, Variance.Invariant)) {
             return 0;
         } else if (insert.match(node.constraint, Variance.Contravariant)) {
@@ -4144,29 +3821,31 @@ new function () { // closure
         return 1;
     }
 
-    function _compareInvariant(node, insert) {
+    function _invariantComparer(node, insert) {
         return insert.match(node.constraint, Variance.Invariant) ? 0 : -1;
     }
 
-    function _requiresResult(result) {
+    function _resultRequired(result) {
         return ((result !== null) && (result !== undefined) && (result !== $NOT_HANDLED));
     }
 
-    function _impliesSuccess(result) {
+    function _successImplied(result) {
         return result ? (result !== $NOT_HANDLED) : (result === undefined);
     }
 
-    function _flattenPrune(array) {
-       var i       = 0,
-           flatten = function (result, item) {
-               if ($isArray(item)) {
-                   Array2.reduce(item, flatten, result);
-               } else if (item != null) {
-                   result[i++] = item;
-               }
-               return result;
-           };
-      return Array2.reduce(array, flatten, []);
+    /**
+     * Gets the effective promise.  This could be the result of a method call.<br/>
+     * See {{#crossLink "miruken.callback.HandleMethod"}}{{/crossLink}}
+     * @method getEffectivePromise
+     * @param    {Object}  object  -  source object
+     * @returns  {Promise} effective promise.
+     * @for miruken.callback.$
+     */
+    function getEffectivePromise(object) {
+        if (object instanceof HandleMethod) {
+            object = object.getReturnValue();
+        }
+        return $isPromise(object) ? object : null;
     }
 
     /**
@@ -4188,7 +3867,7 @@ new function () { // closure
      */                        
 
     if (typeof module !== 'undefined' && module.exports) {
-        module.exports = exports = this.package;
+        module.exports = exports = callback;
     }
 
     eval(this.exports);
@@ -4196,8 +3875,7 @@ new function () { // closure
 }
 
 }).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"./miruken.js":14,"bluebird":25}],7:[function(require,module,exports){
-(function (global){
+},{"./miruken.js":12,"bluebird":23}],5:[function(require,module,exports){
 var miruken = require('./miruken.js');
               require('./graph.js');
               require('./callback.js');
@@ -4213,11 +3891,12 @@ new function () { // closure
      * @submodule context
      * @namespace miruken.context
      */
-    miruken.package(this, {
+    var context = new base2.Package(this, {
         name:    "context",
+        version: miruken.version,
+        parent:  miruken,
         imports: "miruken,miruken.graph,miruken.callback",
-        exports: "ContextState,ContextObserver,Context,ContextualHelper," +
-                 "ContextualMixin,$contextual"
+        exports: "ContextState,ContextObserver,Context,Contextual,ContextualMixin,ContextualHelper,$contextual"
     });
 
     eval(this.imports);
@@ -4292,64 +3971,69 @@ new function () { // closure
      * @uses miruken.Disposing
      */    
     var Context = CompositeCallbackHandler.extend(
-        Parenting, Traversing, Disposing, TraversingMixin, {
+        Parenting, Traversing, Disposing, TraversingMixin,
+        $inferProperties, {
         constructor: function (parent) {
             this.base();
 
-            var _id         = assignID(this),
-                _state      = ContextState.Active,
-                _parent     = parent,
-                _children   = new Array2,
+            var _id                 = assignID(this),
+                _state              = ContextState.Active,
+                _parent             = parent,
+                _children           = new Array2,
+                _baseHandleCallback = this.handleCallback,
                 _observers;
 
             this.extend({
                 /**
                  * Gets the unique id of this context.
                  * @property {string} id
-                 * @readOnly
                  */
-                get id() { return _id },
+                getId: function () { return _id },
                 /**
                  * Gets the context state.
                  * @property {miruken.context.ContextState} state
-                 * @readOnly
                  */
-                get state() { return _state; },
+                getState: function () {
+                    return _state; 
+                },
                 /**
                  * Gets the parent context.
                  * @property {miruken.context.Context} parent
-                 * @readOnly
                  */                
-                get parent() { return _parent; },
+                getParent: function () {
+                    return _parent; 
+                },
                 /**
                  * Gets the context children.
                  * @property {Array} children
-                 * @readOnly
                  */                                
-                get children() { return _children.copy(); },
+                getChildren: function () {
+                    return _children.copy(); 
+                },
                 /**
                  * Determines if the context has children.
-                 * @property {boolean} hasChildren
-                 * @readOnly
+                 * @method hasChildren
+                 * @returns {boolean} true if context has children, false otherwise.
                  */                                                
-                get hasChildren() { return _children.length > 0; },
+                hasChildren: function () {
+                    return _children.length > 0; 
+                },
                 /**
                  * Gets the root context.
                  * @property {miruken.context.Context} root
-                 * @readOnly
                  */                                
-                get root() {
+                getRoot: function () {
                     var root = this, parent;    
-                    while (root && (parent = root.parent)) {
+                    while (root && (parent = root.getParent())) {
                         root = parent;
                     }
                     return root;
                 },
                 newChild: function () {
-                    ensureActive();
+                    _ensureActive();
                     var childContext = new ($classOf(this))(this).extend({
                         end: function () {
-                            var notifier = makeNotifier();
+                            var notifier = _notifier();
                             notifier.childContextEnding(childContext);
                             _children.remove(childContext);
                             this.base();
@@ -4373,28 +4057,12 @@ new function () { // closure
                     return this;
                 },
                 handleCallback: function (callback, greedy, composer) {
-                    var handled = false,
-                        axis    = this.__axis;
-                    if (!axis) {
-                        handled = this.base(callback, greedy, composer);
-                        if (handled && !greedy) {
-                            return true;
-                        }
-                        if (_parent) {
-                            handled = handled | _parent.handle(callback, greedy, composer);
-                        }
-                        return !!handled;                        
+                    var handled = this.base(callback, greedy, composer);
+                    if (handled && !greedy) {
+                        return handled;
                     }
-                    delete this.__axis;
-                    if (axis === TraversingAxis.Self) {
-                        return this.base(callback, greedy, composer);
-                    } else {
-                        this.traverse(axis, function (node) {
-                            handled = handled | ($equals(node, this)
-                                    ? this.base(callback, greedy, composer)
-                                    : node.handleAxis(TraversingAxis.Self, callback, greedy, composer));
-                            return handled && !greedy;
-                        }, this);
+                    if (_parent) {
+                        handled = handled | _parent.handle(callback, greedy, composer);
                     }
                     return !!handled;
                 },
@@ -4408,11 +4076,21 @@ new function () { // closure
                  * @returns {boolean} true if the callback was handled, false otherwise.
                  */                
                 handleAxis: function (axis, callback, greedy, composer) {
-                    if (!(axis instanceof TraversingAxis)) {
-                        throw new TypeError("Invalid axis type supplied");
-                    }        
-                    this.__axis = axis;
-                    return this.handle(callback, greedy, composer);
+                    if (callback === null || callback === undefined) {
+                        return false;
+                    }
+                    greedy   = !!greedy;
+                    composer = composer || this;
+                    if (axis == TraversingAxis.Self) {
+                        return _baseHandleCallback.call(this, callback, greedy, composer);
+                    }
+                    var handled = false;
+                    this.traverse(axis, function (node) {
+                        handled = handled
+                                | node.handleAxis(TraversingAxis.Self, callback, greedy, composer);
+                        return handled && !greedy;
+                    });
+                    return !!handled;
                 },
                 /**
                  * Subscribes to the context notifications.
@@ -4421,7 +4099,7 @@ new function () { // closure
                  * @returns {Function} unsubscribes from context notifications.
                  */                                
                 observe: function (observer) {
-                    ensureActive();
+                    _ensureActive();
                     if (observer === null || observer === undefined) {
                         return;
                     }
@@ -4438,12 +4116,11 @@ new function () { // closure
                 unwindToRootContext: function () {
                     var current = this;
                     while (current) {
-                        var parent = current.parent;
-                        if (parent == null) {
+                        if (current.getParent() == null) {
                             current.unwind();
                             return current;
                         }
-                        current = parent;
+                        current = current.getParent();
                     }
                     return this;
                 },
@@ -4454,7 +4131,7 @@ new function () { // closure
                  * @chainable
                  */                                                
                 unwind: function () {
-                    this.children.invoke('end');
+                    this.getChildren().invoke('end');
                     return this;
                 },
                 /**
@@ -4463,7 +4140,7 @@ new function () { // closure
                  */                                                                
                 end: function () { 
                     if (_state == ContextState.Active) {
-                        var notifier = makeNotifier();
+                        var notifier = _notifier();
                         _state = ContextState.Ending;
                         notifier.contextEnding(this);
                         this.unwind();
@@ -4475,84 +4152,85 @@ new function () { // closure
                 dispose: function () { this.end(); }
             });
 
-            function ensureActive() {
+            function _ensureActive() {
                 if (_state != ContextState.Active) {
                     throw new Error("The context has already ended.");
                 }
             }
 
-            function makeNotifier() {
+            function _notifier() {
                 return new ContextObserver(_observers ? _observers.copy() : null);
             }
-        },
-        resolveContext: function (resolution) {
-            var decoratee = this.decoratee;
-            return decoratee ? decoratee.resolve(resolution.key) : this;
         }
     });
-    $provide(Context, Context, function (resolution) {
-        return this.resolveContext(resolution);
-    });
-    
+
     /**
-     * Mixin to provide the minimal functionality to support contextual based operations.<br/>
+     * Protocol to provide the minimal functionality to support contextual based operations.<br/>
      * This is an alternatve to the delegate model of communication, but with less coupling 
      * and ceremony.
-     * @class ContextualMixin
-     * @private
+     * @class Contextual
+     * @extends miruken.Protocol
      */
-    var ContextualMixin = {
+    var Contextual = Protocol.extend({
         /**
-         * The context associated with the receiver.
-         * @property {miruken.context.Context} context
-         */        
-        get context() { return this.__context; },
-        set context(context) {
-            var field = this.__context;
-            if (field === context) { return; }
-            if (field) {
-                field.removeHandlers(this);
+         * Gets the context associated with the receiver.
+         * @method getContext
+         * @returns {miruken.context.Context} associated context.
+         */
+        getContext: function () {},
+        /**
+         * Sets the context associated with the receiver.
+         * @method setContext
+         * @param  {miruken.contet.Context} context  -  associated context
+         */
+        setContext: function (context) {}
+    });
+
+    /**
+     * Mixin for {{#crossLink "miruken.context.Contextual"}}{{/crossLink}} implementation.
+     * @class ContextualMixin
+     * @uses miruken.context.Contextual
+     * @extends Module
+     */
+    var ContextualMixin = Module.extend({
+        getContext: function (object) {
+            return object.__context;
+        },
+        setContext: function (object, context) {
+            if (object.__context === context) {
+                return;
             }
+            if (object.__context)
+                object.__context.removeHandlers(object);
             if (context) {
-                this.__context = context;
-                context.insertHandlers(0, this);
+                object.__context = context;
+                context.addHandlers(object);
             } else {
-                delete this.__context;
+                delete object.__context;
             }
         },
         /**
          * Determines if the receivers context is active.
-         * @property {boolean} isActiveContext
-         * @readOnly
+         * @method isActiveContext
+         * @returns {boolean} true if the receivers context is active, false otherwise.
          */        
-        get isActiveContext() {
-            var field = this.__context;
-            return field && (field.state === ContextState.Active);
-        },
-        /**
-         * Ends the callers context.
-         * @method endCallingContext
-         */
-        endCallingContext: function () {
-            var composer = global.$composer;
-            if (!composer) { return; }
-            var context = composer.resolve(Context);
-            if (context && (context !== this.context)) {
-                context.End();
-            }
+        isActiveContext: function (object) {
+            return object.__context && (object.__context.getState() === ContextState.Active);
         },
         /**
          * Ends the receivers context.
          * @method endContext
-         */
-        endContext: function () {
-            var field = this.__context;
-            if (field) { field.end(); }
+         */                
+        endContext: function (object) {
+            if (object.__context) {
+                object.__context.end();
+            }
         }
-    };
+    });
 
     /**
      * Metamacro to make classes contextual.<br/>
+     * See {{#crossLink "miruken.context.ContextualMixin"}}{{/crossLink}}
      * <pre>
      *    var Controller = Base.extend($contextual, {
      *       action: function () {}
@@ -4564,9 +4242,10 @@ new function () { // closure
      * @extends miruken.MetaMacro
      */    
     var $contextual = MetaMacro.extend({
-        execute: function (step, metadata) {
+        apply: function (step, metadata) {
             if (step === MetaStep.Subclass) {
                 var clazz = metadata.getClass();
+                clazz.$meta.addProtocol(Contextual);
                 clazz.implement(ContextualMixin);
             }
         }
@@ -4581,12 +4260,13 @@ new function () { // closure
         /**
          * Resolves the receivers context.
          * @method resolveContext
-         * @returns {miruken.context.Context} receiver if a context or the receiver context. 
+         * @returns {miruken.context.Context} receiver if a context or getContext of receiver. 
          */                
         resolveContext: function (contextual) {
-            return $isNothing(contextual) || (contextual instanceof Context)
-                 ? contextual
-                 : contextual.context;
+            if (!contextual) return null;
+            if (contextual instanceof Context) return contextual;
+            return $isFunction(contextual.getContext)
+                 ? contextual.getContext() : null;
         },
         /**
          * Ensure the receiver is associated with a context.
@@ -4604,13 +4284,18 @@ new function () { // closure
          * @method clearContext
          */                                
         clearContext: function (contextual) {
-            var context = contextual.context;
+            if (!contextual ||
+                !$isFunction(contextual.getContext) || 
+                !$isFunction(contextual.setContext)) {
+                return;
+            }
+            var context = contextual.getContext();
             if (context) {
                 try {
                     context.end();
                 }
                 finally {
-                    contextual.context = null;
+                    contextual.setContext(null);
                 }
             }
         },
@@ -4623,15 +4308,23 @@ new function () { // closure
          * @throws {Error} an error if the context could be attached.
          */                                        
         bindContext: function (contextual, context, replace) {
-            if (contextual && (replace || !contextual.context)) {
-                contextual.context = ContextualHelper.resolveContext(context);
+            if (!contextual ||
+                (!replace && $isFunction(contextual.getContext)
+                 && contextual.getContext())) {
+                return contextual;
             }
+            if (contextual.setContext === undefined) {
+                contextual = ContextualMixin(contextual);
+            } else if (!$isFunction(contextual.setContext)) {
+                throw new Error("Unable to set the context on " + contextual + ".");
+            }
+            contextual.setContext(ContextualHelper.resolveContext(context));
             return contextual;
         },
         /**
          * Attaches a child context of the receiver to the contextual child.
          * @method bindChildContext
-         * @param  {miruken.context.Context}  child    -  contextual child
+         * @param  {miruken.context.Context}  child  -  contextual child
          * @param  {boolean}                  replace  -  true if replace existing context
          * @returns {miruken.context.Context} effective child context.
          * @throws {Error} an error if the child context could be attached.
@@ -4639,15 +4332,15 @@ new function () { // closure
         bindChildContext: function (contextual, child, replace) {
             var childContext;
             if (child) {
-                if (!replace) {
-                    childContext = child.context;
-                    if (childContext && childContext.state === ContextState.Active) {
+                if (!replace && $isFunction(child.getContext)) {
+                    childContext = child.getContext();
+                    if (childContext && childContext.getState() === ContextState.Active) {
                         return childContext;
                     }
                 }
-                var context = ContextualHelper.requireContext(contextual);
-                while (context && context.state !== ContextState.Active) {
-                    context = context.parent;
+                var context  = ContextualHelper.requireContext(contextual);
+                while (context && context.getState() !== ContextState.Active) {
+                    context = context.getParent();
                 }
                 if (context) {
                     childContext = context.newChild();
@@ -4717,49 +4410,25 @@ new function () { // closure
          */
         axis: function (axis) {
             return this.decorate({
-                handleCallback: function (callback, greedy, composer) {
-                    if (!(callback instanceof Composition)) {
-                        this.__axis = axis;                        
-                    }
-                    return this.base(callback, greedy, composer);
+                handle: function (callback, greedy, composer) {
+                    return (callback instanceof Composition)
+                         ? base.handle(callback, greedy, composer)
+                         : this.handleAxis(axis, callback, greedy, composer);
                 },
                 equals: function (other) {
-                    return (this === other) || ($decorated(this) === $decorated(other));
+                    return (this === other) || (other === this.decoratee);
                 }
             });
         }},
-        applyAxis = axisControl.axis;
+        applyAxis   = axisControl.axis,
+        axisChoices = Array2.combine(TraversingAxis.names, TraversingAxis.values);
 
-    Array2.forEach(TraversingAxis.names, function (name) {
-        var key = '$' + name.charAt(0).toLowerCase() + name.slice(1);
-        axisControl[key] = Function2.partial(applyAxis, TraversingAxis[name]);
-    });
+    for (var name in axisChoices) {
+        var axis = axisChoices[name],
+            key  = '$' + name.charAt(0).toLowerCase() + name.slice(1);
+        axisControl[key] = Function2.partial(applyAxis, axis);
+    }
 
-    CallbackHandler.implement({
-        /**
-         * Establishes publish invocation semantics.
-         * @method $publish
-         * @returns {miruken.callback.CallbackHandler} publish semantics.
-         * @for miruken.callback.CallbackHandler
-         */
-        $publish: function () {
-            var composer = this;
-            var context = ContextualHelper.resolveContext(composer);
-            if (context) {
-                composer = context.$descendantOrSelf();
-            }
-            return composer.$notify();
-        },
-        $publishFromRoot: function () {
-            var composer = this;
-            var context = ContextualHelper.resolveContext(composer);
-            if (context) {
-                composer = context.root.$descendantOrSelf();
-            }
-            return composer.$notify();
-        }
-    });
-    
     /**
      * Sets the default traversal axis to
      * {{#crossLink "miruken.graph.TraversingAxis/Self:property"}}{{/crossLink}}.
@@ -4901,15 +4570,14 @@ new function () { // closure
         };
 
     if (typeof module !== 'undefined' && module.exports) {
-        module.exports = exports = this.package;
+        module.exports = exports = context;
     }
 
     eval(this.exports);
 
 }
 
-}).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"./callback.js":6,"./graph.js":9,"./miruken.js":14}],8:[function(require,module,exports){
+},{"./callback.js":4,"./graph.js":7,"./miruken.js":12}],6:[function(require,module,exports){
 var miruken = require('./miruken.js'),
     Promise = require('bluebird');
               require('./callback.js');
@@ -4924,8 +4592,10 @@ new function() { // closure
      * @submodule error
      * @namespace miruken.error
      */
-    miruken.package(this, {
+    var error = new base2.Package(this, {
         name:    "error",
+        version: miruken.version,
+        parent:  miruken,
         imports: "miruken,miruken.callback",
         exports: "Errors,ErrorCallbackHandler"
     });
@@ -5018,18 +4688,19 @@ new function() { // closure
         $recover: function (context) {
             return this.filter(function(callback, composer, proceed) {
                 try {
-                    var handled = proceed();
-                    if (handled) {
-                        var result = callback.callbackResult;
-                        if ($isPromise(result)) {
-                            callback.callbackResult = result.catch(function (err) {
-                                return Errors(composer).handleError(err, context);
-                            });
+                    var promise,
+                    handled = proceed();
+                    if (handled && (promise = getEffectivePromise(callback))) {
+                        promise = promise.then(null, function (error) {
+                            return Errors(composer).handleError(error, context);
+                        });
+                        if (callback instanceof HandleMethod) {
+                            callback.setReturnValue(promise);
                         }
                     }
                     return handled;
-                } catch (ex) {
-                    Errors(composer).handleException(ex, context);
+                } catch (exception) {
+                    Errors(composer).handleException(exception, context);
                     return true;
                 }
             });
@@ -5048,14 +4719,14 @@ new function() { // closure
     });
 
     if (typeof module !== 'undefined' && module.exports) {
-        module.exports = exports = this.package;
+        module.exports = exports = error;
     }
 
     eval(this.exports);
 
 }
 
-},{"./callback.js":6,"./miruken.js":14,"bluebird":25}],9:[function(require,module,exports){
+},{"./callback.js":4,"./miruken.js":12,"bluebird":23}],7:[function(require,module,exports){
 var miruken = require('./miruken.js');
 
 new function () { // closure
@@ -5066,8 +4737,10 @@ new function () { // closure
      * @submodule graph
      * @namespace miruken.graph
      */
-     miruken.package(this, {
+    var grpah = new base2.Package(this, {
         name:    "graph",
+        version: miruken.version,
+        parent:  miruken,
         imports: "miruken",
         exports: "TraversingAxis,Traversing,TraversingMixin,Traversal"
     });
@@ -5156,7 +4829,7 @@ new function () { // closure
         /**
          * Traverse a graph of objects.
          * @method traverse
-         * @param {miruken.graph.TraversingAxis} axis        -  axis of traversal
+         * @param {miruken.graph.TraversingAxis} axis  -  axis of traversal
          * @param {Function}                     visitor     -  receives visited nodes
          * @param {Object}                       [context]   -  visitor callback context
          */
@@ -5250,7 +4923,7 @@ new function () { // closure
 
     function _traverseRoot(visitor, context) {
         var parent, root = this, visited = [this];
-        while (parent = root.parent) {
+        while ($isFunction(root.getParent) && (parent = root.getParent())) {
             checkCircularity(visited, parent);
             root = parent;   
         }
@@ -5258,10 +4931,10 @@ new function () { // closure
     }
 
     function _traverseChildren(visitor, withSelf, context) {
-        if ((withSelf && visitor.call(context, this))) {
+        if ((withSelf && visitor.call(context, this)) || !$isFunction(this.getChildren)) {
             return;
         }
-        var children = this.children;
+        var children = this.getChildren();
         for (var i = 0; i < children.length; ++i) {
             if (visitor.call(context, children[i])) {
                 return;
@@ -5274,7 +4947,8 @@ new function () { // closure
         if (withSelf && visitor.call(context, this)) {
             return;
         }
-        while ((parent = parent.parent) && !visitor.call(context, parent)) {
+        while ($isFunction(parent.getParent) && (parent = parent.getParent()) &&
+               !visitor.call(context, parent)) {
             checkCircularity(visited, parent);
         }
     }
@@ -5306,16 +4980,18 @@ new function () { // closure
     }
 
     function _traverseAncestorSiblingOrSelf(visitor, withSelf, withAncestor, context) {
-        if (withSelf && visitor.call(context, this)) {
+        if (withSelf && visitor.call(context, this) || !$isFunction(this.getParent)) {
             return;
         }
-        var self = this, parent = this.parent;
+        var self = this, parent = this.getParent();
         if (parent) {
-            var children = parent.children;
-            for (var i = 0; i < children.length; ++i) {
-                var sibling = children[i];
-                if (!$equals(self, sibling) && visitor.call(context, sibling)) {
-                    return;
+            if ($isFunction(parent.getChildren)) {
+                var children = parent.getChildren();
+                for (var i = 0; i < children.length; ++i) {
+                    var sibling = children[i];
+                    if (!$equals(self, sibling) && visitor.call(context, sibling)) {
+                        return;
+                    }
                 }
             }
             if (withAncestor) {
@@ -5384,7 +5060,7 @@ new function () { // closure
         }
         if ($isFunction(node.traverse))
             node.traverse(function (child) {
-                return _preOrder(child, visitor, context, visited);
+                return Traversal.preOrder(child, visitor, context);
             });
         return false;
     }
@@ -5396,7 +5072,7 @@ new function () { // closure
         }
         if ($isFunction(node.traverse))
             node.traverse(function (child) {
-                return _postOrder(child, visitor, context, visited);
+                return Traversal.postOrder(child, visitor, context);
             });
         return visitor.call(context, node);
     }
@@ -5447,7 +5123,7 @@ new function () { // closure
 
 }
 
-},{"./miruken.js":14}],10:[function(require,module,exports){
+},{"./miruken.js":12}],8:[function(require,module,exports){
 module.exports = require('./miruken.js');
 require('./graph.js');
 require('./callback.js');
@@ -5456,7 +5132,7 @@ require('./error.js');
 require('./validate');
 require('./ioc');
 
-},{"./callback.js":6,"./context.js":7,"./error.js":8,"./graph.js":9,"./ioc":12,"./miruken.js":14,"./validate":22}],11:[function(require,module,exports){
+},{"./callback.js":4,"./context.js":5,"./error.js":6,"./graph.js":7,"./ioc":10,"./miruken.js":12,"./validate":20}],9:[function(require,module,exports){
 var miruken = require('../miruken.js'),
     Promise = require('bluebird');
               require('./ioc.js');
@@ -5469,10 +5145,12 @@ new function () { // closure
      * @namespace miruken.ioc
      * @Class $
      */            
-    miruken.package(this, {
+    var ioc = new base2.Package(this, {
         name:    "ioc",
+        version: miruken.version,
+        parent:  miruken,
         imports: "miruken,miruken.ioc",
-        exports: "Installer,FromBuilder,FromPackageBuilder,BasedOnBuilder,KeyBuilder,$classes"
+        exports: "Installer,$classes"
     });
 
     eval(this.imports);
@@ -5882,19 +5560,18 @@ new function () { // closure
     }
 
     if (typeof module !== 'undefined' && module.exports) {
-        module.exports = exports = this.package;
+        module.exports = exports = ioc;
     }
 
     eval(this.exports);
 }
 
-},{"../miruken.js":14,"./ioc.js":13,"bluebird":25}],12:[function(require,module,exports){
+},{"../miruken.js":12,"./ioc.js":11,"bluebird":23}],10:[function(require,module,exports){
 module.exports = require('./ioc.js');
 require('./fluent.js');
 
 
-},{"./fluent.js":11,"./ioc.js":13}],13:[function(require,module,exports){
-(function (global){
+},{"./fluent.js":9,"./ioc.js":11}],11:[function(require,module,exports){
 var miruken = require('../miruken.js'),
     Promise = require('bluebird');
               require('../callback.js'),
@@ -5904,7 +5581,7 @@ var miruken = require('../miruken.js'),
 new function () { // closure
 
     /**
-     * Package providing dependency injection and inversion-of-control.<br/>
+     * Package providing Inversion-of-Control capabilities.<br/>
      * Requires the {{#crossLinkModule "miruken"}}{{/crossLinkModule}},
      * {{#crossLinkModule "callback"}}{{/crossLinkModule}},
      * {{#crossLinkModule "context"}}{{/crossLinkModule}} and 
@@ -5914,15 +5591,12 @@ new function () { // closure
      * @namespace miruken.ioc
      * @Class $
      */        
-    miruken.package(this, {
+    var ioc = new base2.Package(this, {
         name:    "ioc",
+        version: miruken.version,
+        parent:  miruken,
         imports: "miruken,miruken.graph,miruken.callback,miruken.context,miruken.validate",
-        exports: "Container,Registration,ComponentPolicy,Lifestyle,TransientLifestyle," +
-                 "SingletonLifestyle,ContextualLifestyle,DependencyModifier,DependencyModel," +
-                 "DependencyManager,ComponentModel,ComponentBuilder,ComponentModelError," +
-                 "ComponentModelAware,ComponentModelAwarePolicy,IoContainer," +
-                 "DependencyResolution,DependencyResolutionError," +
-                 "$component,$$composer,$container"
+        exports: "Container,Registration,ComponentPolicy,Lifestyle,TransientLifestyle,SingletonLifestyle,ContextualLifestyle,DependencyModifiers,DependencyModel,DependencyManager,DependencyInspector,ComponentModel,ComponentBuilder,ComponentModelError,IoContainer,DependencyResolution,DependencyResolutionError,$component,$$composer,$container"
     });
 
     eval(this.imports);
@@ -5933,7 +5607,7 @@ new function () { // closure
      * @property {Object} $$composer
      * @for miruken.ioc.$
      */    
-    var $$composer = Object.freeze({});
+    var $$composer = {};
     
     /**
      * Modifier to request container dependency.<br/>
@@ -5959,39 +5633,33 @@ new function () { // closure
      */            
     var Container = StrictProtocol.extend(Invoking, Disposing, {
         /**
-         * Registers components in the container.
+         * Registers on or more components in the container.
          * @method register
          * @param   {Arguments}  [...registrations]  -  registrations
          * @return {Function} function to unregister components.
          */
-        register: function (registrations) {},
+        register: function (/*registrations*/) {},
         /**
-         * Adds a configured component to the container.
+         * Adds a configured component to the container with policies.
          * @method addComponent
          * @param   {miruken.ioc.ComponentModel} componentModel  -  component model
          * @param   {Array}                      [...policies]   -  component policies
-         * @return  {Function} function to remove component.
+         * @return {Function} function to remove component.
          */
         addComponent: function (componentModel, policies) {},
         /**
-         * Adds container-wide policies for all components.
-         * @method addPolicies
-         * @param   {Array}  [...policies]  -  container-wide policies
-         */        
-        addPolicies: function (policies) {},
-        /**
-         * Resolves the first component satisfying the key.
+         * Resolves the component for the key.
          * @method resolve
          * @param   {Any}  key  -  key used to identify the component
-         * @returns {Object | Promise} first component satisfying the key.
+         * @returns {Object | Promise}  component satisfying the key.
          * @async
          */
         resolve: function (key) {},
         /**
-         * Resolves all the components satisfying the key.
+         * Resolves all the components for the key.
          * @method resolveAll
          * @param   {Any}  key  -  key used to identify the component
-         * @returns {Array | Promise} all components satisfying the key.
+         * @returns {Array} components or promises satisfying the key.
          * @async
          */
         resolveAll: function (key) {}
@@ -6004,45 +5672,35 @@ new function () { // closure
      */                
     var Registration = Protocol.extend({
         /**
-         * Encapsulates the regisration of components in a container.
+         * Encapsulates the regisration of one or more components in a container.
          * @method register
-         * @param  {miruken.ioc.Container}            container  -  container
-         * @param  {miruken.callback.CallbackHandler} composer   -  composition handler
+         * @param {miruken.ioc.Container}            container  -  container to register components
+         * @param {miruken.callback.CallbackHandler} composer   -  composition handler
          * @return {Function} function to unregister components.
          */
          register: function (container, composer) {}
     });
 
      /**
-     * Protocol for defining policies for components.
+     * Protocol for applying policies to a {{#crossLink "miruken.ioc.ComponentModel"}}{{/crossLink}}
      * @class ComponentPolicy
      * @extends miruken.Protocol
-     */
+     */                
     var ComponentPolicy = Protocol.extend({
         /**
          * Applies the policy to the component model.
-         * @method applyPolicy
-         * @param  {miruken.ioc.ComponentModel} componentModel  -  component model
-         * @param  {Array}                      [...policies]   -  all known policies
+         * @method apply
+         * @param {miruken.ioc.ComponentModel} componentModel  -  component model
          */
-        applyPolicy: function (componentModel, policies) {},
-        /**
-         * Notifies the creation of a component.
-         * @method componentCreated
-         * @param  {Object} component                           -  component instance
-         * @param  {miruken.ioc.ComponentModel} componentModel  -  component model
-         * @param  {Object} dependencies                        -  resolved dependencies
-         * @param  {miruken.callback.CallbackHandler} composer  -  composition handler
-         */        
-        componentCreated: function (component, componentModel, dependencies, composer) {}
+         apply: function (componentModel) {}
     });
 
     /**
-     * DependencyModifier flags
-     * @class DependencyModifier
+     * DependencyModifiers flags enum
+     * @class DependencyModifiers
      * @extends miruken.Enum
      */    
-    var DependencyModifier = Flags({
+    var DependencyModifiers = Enum({
         /**
          * No dependency modifiers.
          * @property {number} None
@@ -6067,7 +5725,7 @@ new function () { // closure
          * See {{#crossLink "miruken.Modifier/$eval:attribute"}}{{/crossLink}}
          * @property {number} Dynamic
          */
-        Dynamic: 1 << 3,
+        Dynamic:    1 << 3,
         /**
          * See {{#crossLink "miruken.Modifier/$optional:attribute"}}{{/crossLink}}
          * @property {number} Optional
@@ -6093,61 +5751,74 @@ new function () { // closure
          * @property {number} Child
          */        
         Child: 1 << 8
-    });
+        });
 
-    DependencyModifier.Use.modifier       = $use;
-    DependencyModifier.Lazy.modifier      = $lazy;
-    DependencyModifier.Every.modifier     = $every;
-    DependencyModifier.Dynamic.modifier   = $eval;
-    DependencyModifier.Child.modifier     = $child;
-    DependencyModifier.Optional.modifier  = $optional;
-    DependencyModifier.Promise.modifier   = $promise;
-    DependencyModifier.Container.modifier = $container;
-    DependencyModifier.Invariant.modifier = $eq;
-    
     /**
      * Describes a component dependency.
      * @class DependencyModel
      * @constructor
      * @param {Any} dependency  -  annotated dependency
-     * @param {miruken.ioc.DependencyModifier} modifiers  -  dependency annotations
+     * @param {miruken.ioc.DependencyModifiers} modifiers  -  dependency annotations
      * @extends Base
      */
     var DependencyModel = Base.extend({
-        constructor: function (dependency, modifiers) {
-            modifiers = DependencyModifier.None.addFlag(modifiers);
+        constructor: function _(dependency, modifiers) {
+            modifiers = modifiers || DependencyModifiers.None;
             if (dependency instanceof Modifier) {
-                Array2.forEach(DependencyModifier.items, function (flag) {
-                    var modifier = flag.modifier;
-                    if (modifier && modifier.test(dependency)) {
-                        modifiers = modifiers.addFlag(flag);
-                    }
-                });
+                if ($use.test(dependency)) {
+                    modifiers = modifiers | DependencyModifiers.Use;
+                }
+                if ($lazy.test(dependency)) {
+                    modifiers = modifiers | DependencyModifiers.Lazy;
+                }
+                if ($every.test(dependency)) {
+                    modifiers = modifiers | DependencyModifiers.Every;
+                }
+                if ($eval.test(dependency)) {
+                    modifiers = modifiers | DependencyModifiers.Dynamic;
+                }
+                if ($child.test(dependency)) {
+                    modifiers = modifiers | DependencyModifiers.Child;
+                }
+                if ($optional.test(dependency)) {
+                    modifiers = modifiers | DependencyModifiers.Optional;
+                }
+                if ($promise.test(dependency)) {
+                    modifiers = modifiers | DependencyModifiers.Promise;
+                }
+                if ($container.test(dependency)) {
+                    modifiers = modifiers | DependencyModifiers.Container;
+                }
+                if ($eq.test(dependency)) {
+                    modifiers = modifiers | DependencyModifiers.Invariant;
+                }
                 dependency = Modifier.unwrap(dependency);
             }
-            this.extend({
-                /**
-                 * Gets the dependency.
-                 * @property {Any} dependency
-                 * @readOnly
-                 */                            
-                get dependency() { return dependency; },
-                /**
-                 * Gets the dependency flags.
-                 * @property {miruken.ioc.DependencyModifier} modifiers
-                 * @readOnly
-                 */                        
-                get modifiers() { return modifiers; }
-            });
+            var spec = _.spec || (_.spec = {});
+            spec.value = dependency;
+            /**
+             * Gets the dependency.
+             * @property {Any} dependency
+             * @readOnly
+             */            
+            Object.defineProperty(this, 'dependency', spec);
+            spec.value = modifiers;
+            /**
+             * Gets the dependency flags.
+             * @property {miruken.ioc.DependencyModifiers} modifiers
+             * @readOnly
+             */                        
+            Object.defineProperty(this, 'modifiers', spec);
+            delete spec.value;
         },
         /**
          * Tests if the receiving dependency is annotated with the modifier.
          * @method test
-         * @param   {miruken.ioc.DependencyModifier}  modifier  -  modifier flags
+         * @param   {miruken.ioc.DependencyModifiers}  modifier  -  modifier flags
          * @returns {boolean} true if the dependency is annotated with modifier(s).
          */        
         test: function (modifier) {
-            return this.modifiers.hasFlag(modifier);
+            return (this.modifiers & modifier) === modifier;
         }
     }, {
         coerce: function (object) {
@@ -6174,51 +5845,99 @@ new function () { // closure
     });
 
     /**
+     * Extracts dependencies from a component model.
+     * @class DependencyInspector
+     * @extends Base
+     */
+    var DependencyInspector = Base.extend({
+        /**
+         * Inspects the component model for dependencies.
+         * @method inspect
+         * @param   {miruken.ioc.ComponentModel} componentModel  -  component model
+         * @param   {Array}                      [...policies]   -  component policies
+         */
+        inspect: function (componentModel, policies) {
+            // Dependencies will be merged from inject definitions
+            // starting from most derived unitl no more remain or the
+            // current definition is fully specified (no undefined).
+            var dependencies = componentModel.getDependencies();
+            if (dependencies && !Array2.contains(dependencies, undefined)) {
+                return;
+            }
+            var clazz = componentModel.class;
+            componentModel.manageDependencies(function (manager) {
+                while (clazz && (clazz !== Base)) {
+                    var injects = [clazz.prototype.$inject, clazz.prototype.inject,
+                                   clazz.$inject, clazz.inject];
+                    for (var i = 0; i < injects.length; ++i) {
+                        var inject = injects[i];
+                        if (inject !== undefined) {
+                            if ($isFunction(inject)) {
+                                inject = inject();
+                            }
+                            manager.merge(inject);
+                            if (!Array2.contains(inject, undefined)) {
+                                return;
+                            }
+                        }
+                    }
+                    clazz = $ancestorOf(clazz);
+                }
+            });
+        }
+    });
+
+    /**
      * Describes a component to be managed by a {{#crossLink "miruken.ioc.Container"}}{{/crossLink}}.
      * @class ComponentModel
      * @constructor
      * @extends Base
      */
-    var ComponentModel = Base.extend($validateThat, {
+    var ComponentModel = Base.extend(
+        $inferProperties, $validateThat, {
         constructor: function () {
-            var _key, _implementation, _lifestyle, _factory,
+            var _key, _class, _lifestyle, _factory,
                 _invariant = false, _burden = {};
             this.extend({
                 /**
                  * Gets/sets the component key.
                  * @property {Any} key
                  */
-                get key() { return _key || _implementation },
-                set key(value) { _key = value; },
+                getKey: function () {
+                    return _key || _class
+                },
+                setKey: function (value) { _key = value; },
                 /**
                  * Gets/sets the component class.
-                 * @property {Functon} implementation
+                 * @property {Functon} class
                  */
-                get implementation() {
-                    var impl = _implementation;
-                    if (!impl && $isClass(_key)) {
-                        impl = _key;
+                getClass: function () {
+                    var clazz = _class;
+                    if (!clazz && $isClass(_key)) {
+                        clazz = _key;
                     }
-                    return impl;
+                    return clazz;
                 },
-                set implementation(value) {
+                setClass: function (value) {
                     if ($isSomething(value) && !$isClass(value)) {
                         throw new TypeError(format("%1 is not a class.", value));
                     }
-                    _implementation = value;
+                    _class = value;
                 },
                 /**
-                 * Gets/sets if component is invariant.
+                 * true if component is invariant, false otherwise.
                  * @property {boolean} invariant
                  */                                                
-                get invariant () { return _invariant; },
-                set invariant(value) { _invariant = !!value; },
+                isInvariant: function () {
+                    return _invariant;
+                },
+                setInvariant: function (value) { _invariant = !!value; },
                 /**
                  * Gets/sets the component lifestyle.
                  * @property {miruken.ioc.Lifestyle} lifestyle
                  */
-                get lifestyle() { return _lifestyle; },
-                set lifestyle(value) {
+                getLifestyle: function () { return _lifestyle; },
+                setLifestyle: function (value) {
                     if (!$isSomething(value) && !(value instanceof Lifestyle)) {
                         throw new TypeError(format("%1 is not a Lifestyle.", value));
                     }
@@ -6228,9 +5947,9 @@ new function () { // closure
                  * Gets/sets the component factory.
                  * @property {Function} factory
                  */
-                get factory() {
+                getFactory: function () {
                     var factory = _factory,
-                        clazz   = this.implementation;
+                        clazz   = this.class;
                     if (!factory) {
                         var interceptors = _burden[Facet.Interceptors];
                         if (interceptors && interceptors.length > 0) {
@@ -6248,7 +5967,7 @@ new function () { // closure
                     }
                     return factory;
                 },
-                set factory(value) {
+                setFactory: function (value) {
                     if ($isSomething(value) && !$isFunction(value)) {
                         throw new TypeError(format("%1 is not a function.", value));
                     }
@@ -6303,23 +6022,22 @@ new function () { // closure
                 /**
                  * Gets the component dependency burden.
                  * @property {Object} burden
-                 * @readOnly
                  */                                
-                get burden() { return _burden; }
+                getBurden: function () { return _burden; }
             });
         },
         $validateThat: {
             keyCanBeDetermined: function (validation) {
                 if (!this.key) {
-                    validation.results.addKey("key").addError("required", { 
-                        message: "Key could not be determined for component." 
+                    validation.results.addKey('key').addError('required', { 
+                        message: 'Key could not be determined for component.' 
                     });
                 }
             },
             factoryCanBeDetermined: function (validation) {
                 if (!this.factory) {
-                    validation.results.addKey("factory").addError("required", { 
-                        message: "Factory could not be determined for component." 
+                    validation.results.addKey('factory').addError('required', { 
+                        message: 'Factory could not be determined for component.' 
                     });
                 }
             }
@@ -6347,14 +6065,25 @@ new function () { // closure
      * @uses miruken.DisposingMixin
      * @uses miruken.Disposing
      */
-    var Lifestyle = Abstract.extend(ComponentPolicy, Disposing, DisposingMixin, {
+    var Lifestyle = Base.extend(ComponentPolicy, Disposing, DisposingMixin, {
         /**
          * Obtains the component instance.
          * @method resolve
          * @returns {Object} component instance.
          */
         resolve: function (factory) {
-            return factory();
+            var instance = factory();
+            if ($isPromise(instance)) {
+                return instance.then(function (instance) {
+                    if ($isFunction(instance.initialize)) {
+                        instance.initialize();
+                    }                    
+                    return instance;
+                });                
+            } else if ($isFunction(instance.initialize)) {
+                instance.initialize();
+            }
+            return instance;            
         },
         /**
          * Tracks the component instance for disposal.
@@ -6363,17 +6092,16 @@ new function () { // closure
          */        
         trackInstance: function (instance) {
             if (instance && $isFunction(instance.dispose)) {
-                var lifestyle = this;
-                return $decorate(instance, {
+                var _this = this;
+                instance.extend({
                     dispose: function (disposing) {
-                        if (disposing || lifestyle.disposeInstance(this, true)) {
+                        if (disposing || _this.disposeInstance(instance, true)) {
                             this.base();
-                            delete this.dispose;
+                            this.dispose = this.base;
                         }
                     }
                 });
             }
-            return instance;
         },
         /**
          * Disposes the component instance.
@@ -6387,25 +6115,20 @@ new function () { // closure
             }
             return !disposing;
         },
-        applyPolicy: function (componentModel) {
-            componentModel.lifestyle = new this.constructor;
+        apply: function (componentModel) {
+            componentModel.setLifestyle(this);
         }
     });
 
    /**
-     * Creates untracked component instances.
+     * Lifestyle for creating new untracked component instances.
      * @class TransientLifestyle
      * @extends miruken.ioc.Lifestyle
      */
-    var TransientLifestyle = Lifestyle.extend({
-        constructor: function () {},
-        applyPolicy: function (componentModel) {
-            componentModel.lifestyle = this;  // stateless
-        }
-    });
+    var TransientLifestyle = Lifestyle.extend();
 
    /**
-     * Manages a single instance of a component.
+     * Lifestyle for managing a single instance of a component.
      * @class SingletonLifestyle
      * @constructor
      * @param {Object} [instance]  -  existing component instance
@@ -6415,21 +6138,29 @@ new function () { // closure
         constructor: function (instance) {
             this.extend({
                 resolve: function (factory) {
-                    if (instance == null) {
-                        return factory(function (object) {
-                            if (!instance && object) {
-                                instance = this.trackInstance(object);
+                    if (!instance) {
+                        var object = this.base(factory);
+                        if ($isPromise(object)) {
+                            var _this = this;
+                            return object.then(function (object) {
+                                // Only cache fulfilled instances
+                                if (!instance && object) {
+                                    instance = object;
+                                    _this.trackInstance(instance);
+                                }
                                 return instance;
-                            }
-                        }.bind(this));
+                            });
+                        } else if (object) {
+                            instance = object;
+                            this.trackInstance(instance)
+                        }
                     }
-                    instance = this.trackInstance(instance);
-                    return instance;                    
+                    return instance;
                 },
-                disposeInstance: function (object, disposing) {
+                disposeInstance: function (obj, disposing) {
                     // Singletons cannot be disposed directly
-                    if (!disposing && (object === instance)) {
-                        if (this.base(object, disposing)) {
+                    if (!disposing && (obj === instance)) {
+                        if (this.base(obj, disposing)) {
                            instance = undefined;
                            return true;
                         }
@@ -6444,7 +6175,7 @@ new function () { // closure
     });
 
    /**
-     * Manages instances scoped to a {{#crossLink "miruken.context.Context"}}{{/crossLink}}.
+     * Lifestyle for managing instances scoped to a {{#crossLink "miruken.context.Context"}}{{/crossLink}}.
      * @class ContextualLifestyle
      * @constructor
      * @extends miruken.ioc.Lifestyle
@@ -6458,45 +6189,50 @@ new function () { // closure
                     if (context) {
                         var id       = context.id,
                             instance = _cache[id];
-                        return instance ? instance : factory(function (object) {
-                            if (object && !_cache[id]) {
-                                instance = this.trackInstance(object);
-                                instance = this.setContext(object, instance, context);
-                                _cache[id] = instance;
-                                context.onEnded(function () { instance.context = null; });
+                        if (!instance) {
+                            var object = factory();
+                            if ($isPromise(object)) {
+                                var _this = this;
+                                return object.then(function (object) {
+                                    // Only cache fulfilled instances
+                                    if (object && !(instance = _cache[id])) {
+                                        instance = object;
+                                        _this._recordInstance(id, instance, context);
+                                    }
+                                    return instance;
+                                });
+                            } else if (object) {
+                                instance = object;
+                                this._recordInstance(id, instance, context);
                             }
-                            return instance;
-                        }.bind(this));
+                        }
+                        return instance;
                     }
                 },
-                setContext: function (object, instance, context) {
-                    var lifestyle = this,
-                        property  = _getPropertyDescriptor(instance, "context");
-                    if (!(property && property.set)) {
-                        instance = object === instance
-                                 ? $decorate(object, ContextualMixin)
-                                 : instance.extend(ContextualMixin);
+                _recordInstance: function (id, instance, context) {
+                    var _this  = this;
+                    _cache[id] = instance;
+                    if (Contextual.adoptedBy(instance) || $isFunction(instance.setContext)) {
+                        ContextualHelper.bindContext(instance, context);
                     }
-                    ContextualHelper.bindContext(instance, context, true);
-                    return instance.extend({
-                        set context(value) {
-                            if (value == context) { return; }
-                            if (value != null) {
-                                throw new Error("Container managed instances cannot change context");                                
-                            }
-                            this.base(value);
-                            lifestyle.disposeInstance(instance);
-                            return;
+                    if ($isFunction(instance.initialize)) {
+                        instance.initialize();
+                    }                                        
+                    this.trackInstance(instance);
+                    context.onEnded(function () {
+                        if ($isFunction(instance.setContext)) {
+                            instance.setContext(null);
                         }
+                        _this.disposeInstance(instance);
+                        delete _cache[id];
                     });
-                },                
+                },
                 disposeInstance: function (instance, disposing) {
                     if (!disposing) {  // Cannot be disposed directly
                         for (contextId in _cache) {
                             if (_cache[contextId] === instance) {
                                 this.base(instance, disposing);
                                 delete _cache[contextId];
-                                delete instance.context;                                
                                 return true;
                             } 
                         }
@@ -6514,92 +6250,6 @@ new function () { // closure
     });
 
     /**
-     * Collects dependencies to be injected into components.
-     * @class InjectionPolicy
-     * @uses miruken.ioc.ComponentPolicy
-     * @extends Base
-     */
-    var InjectionPolicy = Base.extend(ComponentPolicy, {
-        applyPolicy: function (componentModel) {
-            // Dependencies will be merged from inject definitions
-            // starting from most derived unitl no more remain or the
-            // current definition is fully specified (no holes).
-            var dependencies = componentModel.getDependencies();
-            if (dependencies && !Array2.contains(dependencies, undefined)) {
-                return;
-            }
-            var clazz = componentModel.implementation;
-            componentModel.manageDependencies(function (manager) {
-                while (clazz && (clazz !== Base)) {
-                    var injects = [clazz.prototype.$inject, clazz.prototype.inject,
-                                   clazz.$inject, clazz.inject];
-                    for (var i = 0; i < injects.length; ++i) {
-                        var inject = injects[i];
-                        if (inject !== undefined) {
-                            if ($isFunction(inject)) {
-                                inject = inject();
-                            }
-                            manager.merge(inject);
-                            if (!Array2.contains(inject, undefined)) {
-                                return;
-                            }
-                        }
-                    }
-                    clazz = $ancestorOf(clazz);
-                }
-            });
-        }
-    });
-    
-    /**
-     * Executes the {{#crossLink "miruken.Initializing"}}{{/crossLink}} protocol.
-     * @class InitializationPolicy
-     * @uses miruken.ioc.ComponentPolicy
-     * @extends Base
-     */
-    var InitializationPolicy = Base.extend(ComponentPolicy, {
-        componentCreated: function (component) {
-            if ($isFunction(component.initialize)) {
-                return component.initialize();
-            }
-        }        
-    });
-
-    /**
-     * Marker Protocol for injecting
-     * {{#crossLink "miruken.ioc.ComponentModel"}}{{/crossLink}}.
-     * @class ComponentModelAware
-     * @extends miruken.Protocol
-     */    
-    var ComponentModelAware = Protocol.extend({
-        set componentModel(value) {}
-    });
-    
-    /**
-     * Injects {{#crossLink "miruken.ioc.ComponentModel"}}{{/crossLink}}
-     * into created components.
-     * @class ComponentModelAwarePolicy
-     * @uses miruken.ioc.ComponentPolicy
-     * @extends Base
-     */
-    var ComponentModelAwarePolicy = Base.extend(ComponentPolicy, {
-        constructor: function (implicit) {
-            this.extend({
-                componentCreated: function (component, componentModel) {
-                    if (!implicit || ComponentModelAware.adoptedBy(component)) {
-                        component.componentModel = componentModel;
-                    }
-                }        
-            });
-        }
-    }, {
-        init: function () {
-            this.Implicit = new this(true);
-            this.Explicit = new this(false)
-        }
-    });
-    
-    /**
      * Builds {{#crossLink "miruken.ioc.ComponentModel"}}{{/crossLink}} using fluent api.
      * @class ComponentBuilder
      * @constructor
@@ -6609,8 +6259,9 @@ new function () { // closure
     var ComponentBuilder = Base.extend(Registration, {
         constructor: function (key) {
             var _componentModel = new ComponentModel,
-                _newInContext, _newInChildContext, _policies;
-            _componentModel.key = key;
+                _newInContext, _newInChildContext,
+                _policies = [];
+            _componentModel.setKey(key);
             this.extend({
                 /**
                  * Marks the component as invariant.
@@ -6630,7 +6281,7 @@ new function () { // closure
                  * @chainable
                  */                
                 boundTo: function (clazz) {
-                    _componentModel.implementation = clazz;
+                    _componentModel.setClass(clazz);
                     return this;
                 },
                 /**
@@ -6640,8 +6291,13 @@ new function () { // closure
                  * @return {miruken.ioc.ComponentBuilder} builder
                  * @chainable
                  */                                
-                dependsOn: function (dependencies) {
-                    dependencies = Array.prototype.concat.apply([], arguments);
+                dependsOn: function (/* dependencies */) {
+                    var dependencies;
+                    if (arguments.length === 1 && $isArray(arguments[0])) {
+                        dependencies = arguments[0];
+                    } else if (arguments.length > 0) {
+                        dependencies = Array.prototype.slice.call(arguments);
+                    }
                     _componentModel.setDependencies(dependencies);
                     return this;
                 },
@@ -6653,7 +6309,7 @@ new function () { // closure
                  * @chainable
                  */                                
                 usingFactory: function (factory) {
-                    _componentModel.factory = factory;
+                    _componentModel.setFactory(factory);
                     return this;
                 },
                 /**
@@ -6664,7 +6320,7 @@ new function () { // closure
                  * @chainable
                  */                                                
                 instance: function (instance) {
-                    _componentModel.lifestyle = new SingletonLifestyle(instance);
+                    _componentModel.setLifestyle(new SingletonLifestyle(instance));
                     return this;
                 },
                 /**
@@ -6674,7 +6330,7 @@ new function () { // closure
                  * @chainable
                  */
                 singleton: function () {
-                    _componentModel.lifestyle = new SingletonLifestyle;
+                    _componentModel.setLifestyle(new SingletonLifestyle);
                     return this;
                 },
                 /**
@@ -6684,7 +6340,7 @@ new function () { // closure
                  * @chainable
                  */                
                 transient: function () {
-                    _componentModel.lifestyle = new TransientLifestyle;
+                    _componentModel.setLifestyle(new TransientLifestyle);
                     return this;
                 },
                 /**
@@ -6694,7 +6350,7 @@ new function () { // closure
                  * @chainable
                  */                                
                 contextual: function () {
-                    _componentModel.lifestyle = new ContextualLifestyle;
+                    _componentModel.setLifestyle(new ContextualLifestyle);
                     return this;
                 },
                 /**
@@ -6722,29 +6378,47 @@ new function () { // closure
                 /**
                  * Attaches component interceptors.
                  * @method interceptors
-                 * @param  {miruken.Interceptor}  ...interceptors  -  interceptors
+                 * @param  {Argument} arguments  -  interceptors
                  * @return {miruken.ioc.ComponentBuilder} builder
                  * @chainable
                  */                                                
-                interceptors: function (interceptors) {
-                    interceptors = Array.prototype.concat.apply([], arguments);
+                interceptors: function (/* interceptors */) {
+                    var interceptors = (arguments.length === 1 && $isArray(arguments[0]))
+                                     ? arguments[0]
+                                     : Array.prototype.slice.call(arguments);
                     return new InterceptorBuilder(this, _componentModel, interceptors);
                 },
                 /**
-                 * Attaches {{#crossLink "miruken.ioc.ComponentPolicy"}}{{/crossLink}}'s.
-                 * @method policies
-                 * @param   {miruken.ioc.ComponentPolicy}  ...policies  -  policies
+                 * Gets the {{#crossLink "miruken.ioc.ComponentPolicy"}}{{/crossLink}} of type policyClass.
+                 * @method getPolicy
+                 * @param   {Function}  policyClass  -  type of policy to get
+                 * @returns {miruken.ioc.ComponentPolicy} policy of type PolicyClass
                  */            
-                policies: function (policies) {
-                    if (policies) {
-                        _policies = Array.prototype.concat.apply(_policies || [], arguments);
+                getPolicy: function (policyClass) {
+                    for (var i = 0; i < _policies.length; ++i) {
+                        var policy = _policies[i];
+                        if (policy instanceof policyClass) {
+                            return policy;
+                        }
                     }
-                    return this;
+                },
+                /**
+                 * Attaches a {{#crossLink "miruken.ioc.ComponentPolicy"}}{{/crossLink}} to the model.
+                 * @method addPolicy
+                 * @param   {miruken.ioc.ComponentPolicy}  policy  -  policy
+                 * @returns {boolean} true if policy was added, false if policy type already attached.
+                 */            
+                addPolicy: function (policy) {
+                    if (this.getPolicy($classOf(policy))) {
+                        return false;
+                    }
+                    _policies.push(policy);
+                    return true;
                 },
                 register: function (container) {
                     if ( _newInContext || _newInChildContext) {
-                        var factory = _componentModel.factory;
-                        _componentModel.factory = function (dependencies) {
+                        var factory = _componentModel.getFactory();
+                        _componentModel.setFactory(function (dependencies) {
                             var object  = factory(dependencies),
                                 context = this.resolve(Context);
                             if (_newInContext) {
@@ -6753,7 +6427,7 @@ new function () { // closure
                                 ContextualHelper.bindChildContext(context, object);
                             }
                             return object;
-                        };
+                        });
                     }
                     return container.addComponent(_componentModel, _policies);
                 }
@@ -6944,12 +6618,6 @@ new function () { // closure
     ComponentModelError.prototype             = new Error;
     ComponentModelError.prototype.constructor = ComponentModelError;
 
-    var DEFAULT_POLICIES = [
-        new InjectionPolicy(),
-        ComponentModelAwarePolicy.Implicit,
-        new InitializationPolicy()
-    ];
-    
     /**
      * Default Inversion of Control {{#crossLink "miruken.ioc.Container"}}{{/crossLink}}.
      * @class IoContainer
@@ -6959,55 +6627,64 @@ new function () { // closure
      */
     var IoContainer = CallbackHandler.extend(Container, {
         constructor: function () {
-            var _policies = DEFAULT_POLICIES;
+            var _inspectors = [new DependencyInspector];
             this.extend({
                 addComponent: function (componentModel, policies) {
-                    policies = (policies && policies.length > 0)
-                             ? _policies.concat(policies)
-                             : _policies;
+                    policies  = policies || [];
+                    for (var i = 0; i < _inspectors.length; ++i) {
+                        _inspectors[i].inspect(componentModel, policies);
+                    }
                     for (var i = 0; i < policies.length; ++i) {
                         var policy = policies[i];
-                        if ($isFunction(policy.applyPolicy)) {
-                            policy.applyPolicy(componentModel, policies);
+                        if ($isFunction(policy.apply)) {
+                            policy.apply(componentModel);
                         }
                     }
                     var validation = Validator($composer).validate(componentModel);
-                    if (!validation.valid) {
+                    if (!validation.isValid()) {
                         throw new ComponentModelError(componentModel, validation);
                     }
-                    return this.registerHandler(componentModel, policies); 
+                    return this.registerHandler(componentModel); 
                 },
-                addPolicies: function (policies) {
-                    if (policies) {
-                        _policies = _policies.concat.apply(_policies, arguments);
+                /**
+                 * Adds a component inspector to the container.
+                 * @method addInspector
+                 * @param  {Object}  inspector  -  any object with an 'inspect' method that
+                 * accepts a {{#crossLink "miruken.ioc.ComponentModel"}}{{/crossLink}} and
+                 * array of {{#crossLink "miruken.ioc.ComponentPolicy"}}{{/crossLink}}
+                 */
+                addInspector: function (inspector) {
+                    if (!$isFunction(inspector.inspect)) {
+                        throw new TypeError("Inspectors must have an inspect method.");
                     }
-                }                
+                    _inspectors.push(inspector);
+                },
+                /**
+                 * Removes a previously added component inspector from the container.
+                 * @method removeInspector
+                 * @param  {Object}  inspector  -  component inspector
+                 */                
+                removeInspector: function (inspector) {
+                    Array2.remove(_inspectors, inspector);
+                }
             })
         },
-        resolve: function (key) {
-            var resolution = key instanceof Resolution ? key
-                           : new DependencyResolution(key);
-            if (this.handle(resolution, false, global.$composer)) {
-                return resolution.callbackResult;
-            }            
-        },
-        resolveAll: function (key) {
-            var resolution = key instanceof Resolution ? key
-                           : new DependencyResolution(key, null, true);
-            return this.handle(resolution, true, global.$composer)
-                 ? resolution.callbackResult
-                 : [];            
-        },       
-        register: function (registrations) {
+        register: function (/*registrations*/) {
             return Array2.flatten(arguments).map(function (registration) {
                 return registration.register(this, $composer);
             }.bind(this));
         },
-        registerHandler: function (componentModel, policies) {
-            return _registerHandler(componentModel, this, policies); 
+        registerHandler: function (componentModel) {
+            var key       = componentModel.key,
+                clazz     = componentModel.class,
+                lifestyle = componentModel.lifestyle || new SingletonLifestyle,
+                factory   = componentModel.factory,
+                burden    = componentModel.burden;
+            key = componentModel.isInvariant() ? $eq(key) : key;
+            return _registerHandler(this, key, clazz, lifestyle, factory, burden); 
         },
         invoke: function (fn, dependencies, ctx) {
-            var inject  = fn.$inject || fn.inject,
+            var inject  = fn.$inject,
                 manager = new DependencyManager(dependencies);
             if (inject) {
                 if ($isFunction(inject)) {
@@ -7028,13 +6705,7 @@ new function () { // closure
         }
     });
 
-    function _registerHandler(componentModel, container, policies) {
-        var key       = componentModel.key,
-            clazz     = componentModel.implementation,
-            lifestyle = componentModel.lifestyle || new SingletonLifestyle,
-            factory   = componentModel.factory,
-            burden    = componentModel.burden;
-        key = componentModel.invariant ? $eq(key) : key;        
+    function _registerHandler(container, key, clazz, lifestyle, factory, burden) {
         return $provide(container, key, function handler(resolution, composer) {
             if (!(resolution instanceof DependencyResolution)) {
                 resolution = new DependencyResolution(resolution.key);
@@ -7042,34 +6713,15 @@ new function () { // closure
             if (!resolution.claim(handler, clazz)) {  // cycle detected
                 return $NOT_HANDLED;
             }
-            return lifestyle.resolve(function (configure) {
+            return lifestyle.resolve(function () {
                 var instant      = $instant.test(resolution.key),
                     dependencies = _resolveBurden(burden, instant, resolution, composer);
-                return $isPromise(dependencies)
-                     ? dependencies.then(createComponent)
-                     : createComponent(dependencies);
-                function createComponent(dependencies) {
-                    var component = factory.call(composer, dependencies);
-                    if ($isFunction(configure)) {
-                        component = configure(component, dependencies) || component;
-                    }
-                    return applyPolicies(0);
-                    function applyPolicies(index) {
-                        for (var i = index; i < policies.length; ++i) {
-                            var policy = policies[i];
-                            if ($isFunction(policy.componentCreated)) {
-                                var result = policy.componentCreated(
-                                    component, componentModel, dependencies, composer);
-                                if ($isPromise(result)) {
-                                    return result.then(function () {
-                                        return applyPolicies(i + 1);
-                                    });
-                                }
-                            }
-                        }
-                        return component;
-                    }
+                if ($isPromise(dependencies)) {
+                    return dependencies.then(function (deps) {
+                        return factory.call(composer, deps);
+                    });
                 }
+                return factory.call(composer, dependencies);
             }, composer);
         }, lifestyle.dispose.bind(lifestyle));
     }
@@ -7089,11 +6741,11 @@ new function () { // closure
                 if (dep === undefined) {
                     continue;
                 }
-                var use        = dep.test(DependencyModifier.Use),
-                    lazy       = dep.test(DependencyModifier.Lazy),
-                    promise    = dep.test(DependencyModifier.Promise),
-                    child      = dep.test(DependencyModifier.Child),
-                    dynamic    = dep.test(DependencyModifier.Dynamic),
+                var use        = dep.test(DependencyModifiers.Use),
+                    lazy       = dep.test(DependencyModifiers.Lazy),
+                    promise    = dep.test(DependencyModifiers.Promise),
+                    child      = dep.test(DependencyModifiers.Child),
+                    dynamic    = dep.test(DependencyModifiers.Dynamic),
                     dependency = dep.dependency;
                 if (use || dynamic || $isNothing(dependency)) {
                     if (dynamic && $isFunction(dependency)) {
@@ -7110,10 +6762,10 @@ new function () { // closure
                 } else if (dependency === Container) {
                     dependency = containerDep;
                 } else {
-                    var all           = dep.test(DependencyModifier.Every),
-                        optional      = dep.test(DependencyModifier.Optional),
-                        invariant     = dep.test(DependencyModifier.Invariant),
-                        fromContainer = dep.test(DependencyModifier.Container);
+                    var all           = dep.test(DependencyModifiers.Every),
+                        optional      = dep.test(DependencyModifiers.Optional),
+                        invariant     = dep.test(DependencyModifiers.Invariant),
+                        fromContainer = dep.test(DependencyModifiers.Container);
                     if (invariant) {
                         dependency = $eq(dependency);
                     }
@@ -7150,13 +6802,9 @@ new function () { // closure
             dependencies[key] = resolved;
         }
         if (promises.length === 1) {
-            return promises[0].then(function () {
-                return dependencies;
-            });
+            return promises[0].return(dependencies);
         } else if (promises.length > 1) {
-            return Promise.all(promises).then(function () {
-                return dependencies;
-            });
+            return Promise.all(promises).return(dependencies);
         }
         return dependencies;
     }
@@ -7191,26 +6839,16 @@ new function () { // closure
     }
 
     if (typeof module !== 'undefined' && module.exports) {
-        module.exports = exports = this.package;
+        module.exports = exports = ioc;
     }
 
-    function _getPropertyDescriptor(object, key) {
-        var source = object, descriptor;
-        while (source && !(
-            descriptor = Object.getOwnPropertyDescriptor(source, key))
-              ) source = Object.getPrototypeOf(source);
-        return descriptor;
-    }
-    
     eval(this.exports);
 
 }
 
-}).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"../callback.js":6,"../context.js":7,"../miruken.js":14,"../validate":22,"bluebird":25}],14:[function(require,module,exports){
+},{"../callback.js":4,"../context.js":5,"../miruken.js":12,"../validate":20,"bluebird":23}],12:[function(require,module,exports){
 (function (global){
 require('./base2.js');
-var Promise = require('bluebird');
 
 new function () { // closure
 
@@ -7221,19 +6859,15 @@ new function () { // closure
      * @main miruken
      * @class $
      */
-    base2.package(this, {
+    var miruken = new base2.Package(this, {
         name:    "miruken",
-        version: "2.0.24",
-        exports: "Enum,Flags,Variance,Protocol,StrictProtocol,Delegate,Miruken,MetaStep,MetaMacro," +
-                 "Initializing,Disposing,DisposingMixin,Resolving,Invoking,Parenting,Starting,Startup," +
-                 "Facet,Interceptor,InterceptorSelector,ProxyBuilder,Modifier,ArrayManager,IndexedList," +
-                 "$isProtocol,$isClass,$classOf,$ancestorOf,$isString,$isFunction,$isObject,$isArray," +
-                 "$isPromise,$isNothing,$isSomething,$using,$lift,$equals,$decorator,$decorate,$decorated," +
-                 "$debounce,$eq,$use,$copy,$lazy,$eval,$every,$child,$optional,$promise,$instant," +
-                 "$createModifier,$properties,$inferProperties,$inheritStatic"
+        version: "0.0.9",
+        exports: "Enum,Variance,Protocol,StrictProtocol,Delegate,Miruken,MetaStep,MetaMacro,Initializing,Disposing,DisposingMixin,Invoking,Parenting,Starting,Startup,Facet,Interceptor,InterceptorSelector,ProxyBuilder,Modifier,ArrayManager,IndexedList,$isProtocol,$isClass,$classOf,$ancestorOf,$isString,$isFunction,$isObject,$isArray,$isPromise,$isNothing,$isSomething,$using,$lift,$equals,$decorator,$decorate,$decorated,$debounce,$eq,$use,$copy,$lazy,$eval,$every,$child,$optional,$promise,$instant,$createModifier,$properties,$inferProperties,$inheritStatic"
     });
 
     eval(this.imports);
+
+    var META = '$meta';
 
     /**
      * Annotates invariance.
@@ -7308,133 +6942,27 @@ new function () { // closure
      * </pre>
      * @class Enum
      * @constructor
-     * @param  {Any}     value    -  enum value
-     * @param  {string}  name     -  enum name
-     * @param  {number}  ordinal  -  enum position
+     * @param  {Object}  choices  -  enum choices
      */
     var Enum = Base.extend({
-        constructor: function (value, name, ordinal) {
-            this.constructing(value, name);
-            Object.defineProperties(this, {
-                "value": {
-                    value:        value,
-                    writable:     false,
-                    configurable: false
-                },
-                "name": {
-                    value:        name,
-                    writable:     false,
-                    configurable: false
-                },
-                "ordinal": {
-                    value:        ordinal,
-                    writable:     false,
-                    configurable: false
-                },
-                
-            });
-        },
-        toString: function () { return this.name; },
-        toJSON: function () {
-            var value = this.value;
-            return value != null && $isFunction(value.toJSON)
-                 ? value.toJSON()
-                 : value;
-        },
-        constructing: function (value, name) {
-            if (!this.constructor.__defining) {
-                throw new TypeError("Enums cannot be instantiated.");
-            }            
+        constructor: function () {
+            throw new TypeError("Enums cannot be instantiated.");
         }
     }, {
-        coerce: function _(choices, behavior) {
-            if (this !== Enum && this !== Flags) {
-                return;
-            }
-            var en = this.extend(behavior, {
-                coerce: function _(value) {
-                    return this.fromValue(value);
-                }
+        coerce: function (choices) {
+            var en     = this.extend(null, choices),
+                names  = Object.freeze(Object.keys(choices)),
+                values = Object.freeze(Array2.map(names, function (name) {
+                        return choices[name];
+                }));
+            Object.defineProperties(en, {
+                names:  { value: names },
+                values: { value: values }
             });
-            en.__defining = true;
-            var items     = [], ordinal = 0;
-            en.names      = Object.freeze(Object.keys(choices));
-            for (var choice in choices) {
-                var item = en[choice] = new en(choices[choice], choice, ordinal++);
-                items.push(item);
-            }
-            en.items     = Object.freeze(items);
-            en.fromValue = this.fromValue;
-            delete en.__defining;
             return Object.freeze(en);
-        },
-        fromValue: function (value) {
-            var names = this.names;
-            for (var i = 0; i < names.length; ++i) {
-                var e = this[names[i]];
-                if (e.value == value) {
-                    return e;
-                }
-            }
-            throw new TypeError(format("%1 is not a valid value for this Enum.", value));
         }
     });
-    Enum.prototype.valueOf = function () {
-        var value = +this.value;
-        return isNaN(value) ? this.ordinal : value;
-    }
 
-    /**
-     * Defines a flags enumeration.
-     * <pre>
-     *    var DayOfWeek = Flags({
-     *        Monday:     1 << 0,
-     *        Tuesday:    1 << 1,
-     *        Wednesday:  1 << 2,
-     *        Thursday:   1 << 3,
-     *        Friday:     1 << 4,
-     *        Saturday:   1 << 5,
-     *        Sunday:     1 << 6
-     *    })
-     * </pre>
-     * @class Enum
-     * @constructor
-     * @param  {Any} value     -  flag value
-     * @param  {string} value  -  flag name
-     */    
-    var Flags = Enum.extend({
-        hasFlag: function (flag) {
-            flag = +flag;
-            return (this & flag) === flag;
-        },
-        addFlag: function (flag) {
-            return $isSomething(flag)
-                 ? this.constructor.fromValue(this | flag)
-                 : this;
-        },
-        removeFlag: function (flag) {
-            return $isSomething(flag)
-                 ? this.constructor.fromValue(this & (~flag))
-                 : this;
-        },
-        constructing: function (value, name) {}        
-    }, {
-        fromValue: function (value) {
-            value = +value;
-            var name, names = this.names;
-            for (var i = 0; i < names.length; ++i) {
-                var flag = this[names[i]];
-                if (flag.value === value) {
-                    return flag;
-                }
-                if ((value & flag.value) === flag.value) {
-                    name = name ? (name + "," + flag.name) : flag.name;
-                }
-            }
-            return new this(value, name);
-        }
-    });
-                            
     /**
      * Variance enum
      * @class Variance
@@ -7456,6 +6984,113 @@ new function () { // closure
          * @property {number} Invariant
          */        
         Invariant: 3
+        });
+
+    /**
+     * Delegates properties and methods to another object.<br/>
+     * See {{#crossLink "miruken.Protocol"}}{{/crossLink}}
+     * @class Delegate
+     * @extends Base
+     */
+    var Delegate = Base.extend({
+        /**
+         * Delegates the property get on the protocol.
+         * @method get
+         * @param   {miruken.Protocol} protocol      - receiving protocol
+         * @param   {string}           propertyName  - name of the property
+         * @param   {boolean}          strict        - true if target must adopt protocol
+         * @returns {Any} result of the proxied get.
+         */
+        get: function (protocol, propertyName, strict) {},
+        /**
+         * Delegates the property set on the protocol.
+         * @method set
+         * @param   {miruken.Protocol} protocol      - receiving protocol
+         * @param   {string}           propertyName  - name of the property
+         * @param   {Object}           propertyValue - value of the property
+         * @param   {boolean}          strict        - true if target must adopt protocol
+         */
+        set: function (protocol, propertyName, propertyValue, strict) {},
+        /**
+         * Delegates the method invocation on the protocol.
+         * @method invoke
+         * @param   {miruken.Protocol} protocol      - receiving protocol
+         * @param   {string}           methodName  - name of the method
+         * @param   {Array}            args        - method arguments
+         * @param   {boolean}          strict      - true if target must adopt protocol
+         * @returns {Any} result of the proxied invocation.
+         */
+         invoke: function (protocol, methodName, args, strict) {}
+    });
+
+    /**
+     * Delegates properties and methods to an object.
+     * @class ObjectDelegate
+     * @constructor
+     * @param   {Object}  object  - receiving object
+     * @extends miruken.Delegate
+     */
+    var ObjectDelegate = Delegate.extend({
+        constructor: function (object) {
+            Object.defineProperty(this, 'object', { value: object });
+        },
+        get: function (protocol, propertyName, strict) {
+            var object = this.object;
+            if (object && (!strict || protocol.adoptedBy(object))) {
+                return object[propertyName];
+            }
+        },
+        set: function (protocol, propertyName, propertyValue, strict) {
+            var object = this.object;
+            if (object && (!strict || protocol.adoptedBy(object))) {
+                return object[propertyName] = propertyValue;
+            }
+        },
+        invoke: function (protocol, methodName, args, strict) {
+            var object = this.object;
+            if (object && (!strict || protocol.adoptedBy(object))) {
+                method = object[methodName];                
+                return method && method.apply(object, args);
+            }
+        }
+    });
+
+    /**
+     * Delegates properties and methods to an array.
+     * @class ArrayDelegate
+     * @constructor
+     * @param   {Array}  array  - receiving array
+     * @extends miruken.Delegate
+     */
+    var ArrayDelegate = Delegate.extend({
+        constructor: function (array) {
+            Object.defineProperty(this, 'array', { value: array });
+        },
+        get: function (protocol, propertyName, strict) {
+            var array = this.array;
+            return array && Array2.reduce(array, function (result, object) {
+                return !strict || protocol.adoptedBy(object)
+                     ? object[propertyName]
+                     : result;
+            }, undefined);  
+        },
+        set: function (protocol, propertyName, propertyValue, strict) {
+            var array = this.array;
+            return array && Array2.reduce(array, function (result, object) {
+                return !strict || protocol.adoptedBy(object)
+                     ? object[propertyName] = propertyValue
+                     : result;
+            }, undefined);  
+        },
+        invoke: function (protocol, methodName, args, strict) {
+            var array = this.array;
+            return array && Array2.reduce(array, function (result, object) {
+                var method = object[methodName];
+                return method && (!strict || protocol.adoptedBy(object))
+                     ? method.apply(object, args)
+                     : result;
+            }, undefined);
+        }
     });
     
     /**
@@ -7478,14 +7113,14 @@ new function () { // closure
         constructor: function (delegate, strict) {
             if ($isNothing(delegate)) {
                 delegate = new Delegate;
-            } else if ($isFunction(delegate.toDelegate)) {
-                delegate = delegate.toDelegate();
-                if ((delegate instanceof Delegate) === false) {
-                    throw new TypeError(format(
-                        "%1.toDelegate did not return a valid Delegate.", delegate));
-                }
             } else if ((delegate instanceof Delegate) === false) {
-                if ($isArray(delegate)) {
+                if ($isFunction(delegate.toDelegate)) {
+                    delegate = delegate.toDelegate();
+                    if ((delegate instanceof Delegate) === false) {
+                        throw new TypeError(format(
+                            "Invalid delegate: %1 is not a Delegate nor does it have a 'toDelegate' method that returned one.", delegate));
+                    }
+                } else if ($isArray(delegate)) {
                     delegate = new ArrayDelegate(delegate);
                 } else {
                     delegate = new ObjectDelegate(delegate);
@@ -7495,19 +7130,15 @@ new function () { // closure
             Object.defineProperty(this, 'strict', { value: !!strict });
         },
         __get: function (propertyName) {
-            var delegate = this.delegate;
-            return delegate && delegate.get(this.constructor, propertyName, this.strict);
+            return this.delegate.get(this.constructor, propertyName, this.strict);
         },
-        __set: function (propertyName, propertyValue) {
-            var delegate = this.delegate;            
-            return delegate && delegate.set(this.constructor, propertyName, propertyValue, this.strict);
+        __set: function (propertyName, propertyValue) {                
+            return this.delegate.set(this.constructor, propertyName, propertyValue, this.strict);
         },
         __invoke: function (methodName, args) {
-            var delegate = this.delegate;                        
-            return delegate && delegate.invoke(this.constructor, methodName, args, this.strict);
+            return this.delegate.invoke(this.constructor, methodName, args, this.strict);
         }
     }, {
-        conformsTo: False,        
         /**
          * Determines if the target is a {{#crossLink "miruken.Protocol"}}{{/crossLink}}.
          * @static
@@ -7518,6 +7149,7 @@ new function () { // closure
         isProtocol: function (target) {
             return target && (target.prototype instanceof Protocol);
         },
+        conformsTo: False,
         /**
          * Determines if the target conforms to this protocol.
          * @static
@@ -7561,7 +7193,7 @@ new function () { // closure
          * @property {number} Extend
          */
         Extend: 3
-    });
+        });
 
     /**
      * Provides a method to modify a class definition at runtime.
@@ -7570,47 +7202,21 @@ new function () { // closure
      */
     var MetaMacro = Base.extend({
         /**
-         * Inflates the macro for the given step.
-         * @method inflate
-         * @param  {miruken.MetaStep}  step        -  meta step
-         * @param  {miruken.MetaBase}  metadata    -  source metadata
-         * @param  {Object}            target      -  target macro applied to
-         * @param  {Object}            definition  -  updates to apply
-         * @param  {Function}          expand      -  expanded definition
+         * Executes the macro for the given step.
+         * @method apply
+         * @param  {miruken.MetaStep}  step        - meta step
+         * @param  {miruken.MetaBase}  metadata    - effective metadata
+         * @param  {Object}            target      - target macro applied to 
+         * @param  {Object}            definition  - literal containing changes
          */
-        inflate: function (step, metadata, target, definition, expand) {},
-        /**
-         * Execite the macro for the given step.
-         * @method execute
-         * @param  {miruken.MetaStep}  step        -  meta step
-         * @param  {miruken.MetaBase}  metadata    -  effective metadata
-         * @param  {Object}            target      -  target macro applied to
-         * @param  {Object}            definition  -  source to apply
-         */
-        execute: function (step, metadata, target, definition) {},
+        apply: function (step, metadata, target, definition) {},
         /**
          * Triggered when a protocol is added to metadata.
          * @method protocolAdded
-         * @param {miruken.MetaBase}  metadata  -  effective metadata
-         * @param {miruken.Protocol}  protocol  -  protocol added
+         * @param {miruken.MetaBase}   metadata    - effective metadata
+         * @param {miruken.Protocol}   protocol    - protocol added
          */
         protocolAdded: function (metadata, protocol) {},
-        /**
-         * Extracts the property and evaluate it if a function.
-         * @method extractProperty
-         * @param    {string}  property  -  property name
-         * @param    {Object}  target    -  owning target
-         * @param    {Object}  source    -  definition source
-         * @returns  {Any} property value.
-         */                
-        extractProperty: function (property, target, source) {
-            var value = source[property];
-            if ($isFunction(value)) {
-                value = value();
-            }
-            delete target[property];            
-            return value;
-        },        
         /**
          * Determines if the macro should be inherited
          * @method shouldInherit
@@ -7713,18 +7319,11 @@ new function () { // closure
                     }
                     return false;
                 },
-                inflate: function (step, metadata, target, definition, expand) {
+                apply: function _(step, metadata, target, definition) {
                     if (parent) {
-                        parent.inflate(step, metadata, target, definition, expand);
+                        parent.apply(step, metadata, target, definition);
                     } else if ($properties) {
-                        $properties.shared.inflate(step, metadata, target, definition, expand)
-                    }
-                },
-                execute: function (step, metadata, target, definition) {
-                    if (parent) {
-                        parent.execute(step, metadata, target, definition);
-                    } else if ($properties) {
-                        $properties.shared.execute(step, metadata, target, definition);
+                        (_.p || (_.p = new $properties)).apply(step, metadata, target, definition);
                     }
                 },
                 /**
@@ -7736,15 +7335,9 @@ new function () { // closure
                  * @param  {Object}   [descriptor]  -  property descriptor
                  */
                 defineProperty: function(target, name, spec, descriptor) {
-                    if (descriptor) {
-                        descriptor = copy(descriptor);
-                    }
-                    if (target) {
-                        Object.defineProperty(target, name, spec);
-                    }
-                    if (descriptor) {
-                        this.addDescriptor(name, descriptor);
-                    }
+                    descriptor = extend({}, descriptor);
+                    Object.defineProperty(target, name, spec);
+                    this.addDescriptor(name, descriptor);
                 },
                 /**
                  * Gets the descriptor for one or more properties.
@@ -7762,8 +7355,7 @@ new function () { // closure
                             descriptors = extend(descriptors || {}, _descriptors);
                         }
                     } else if ($isString(filter)) {
-                        return (_descriptors && _descriptors[filter])
-                            || (parent && parent.getDescriptor(filter));
+                        return _descriptors[filter] || (parent && parent.getDescriptor(filter));
                     } else {
                         if (parent) {
                             descriptors = parent.getDescriptor(filter);
@@ -7841,7 +7433,7 @@ new function () { // closure
                         });
                     }
                     return this;
-                }
+                }        
             });
         }
     });
@@ -7850,21 +7442,27 @@ new function () { // closure
      * Represents metadata describing a class.
      * @class ClassMeta
      * @constructor
-     * @param   {miruken.MetaBase}  baseMeta   -  base meta data
-     * @param   {Function}          subClass   -  associated class
-     * @param   {Array}             protocols  -  conforming protocols
-     * @param   {Array}             macros     -  class macros
+     * @param   {Function}  baseClass  -  associated base class
+     * @param   {Function}  subClass   -  associated class
+     * @param   {Array}     protocols  -  conforming protocols
+     * @param   {Array}     macros     -  class macros
      * @extends miruken.MetaBase
      */
     var ClassMeta = MetaBase.extend({
-        constructor: function(baseMeta, subClass, protocols, macros)  {
-            var _macros     = macros && macros.slice(0),
-                _isProtocol = (subClass === Protocol)
-                           || (subClass.prototype instanceof Protocol);
-            this.base(baseMeta);
+        constructor: function(baseClass, subClass, protocols, macros)  {
+            var _isProtocol = (subClass === Protocol)
+                           || (subClass.prototype instanceof Protocol),
+                _macros     = macros ? macros.slice(0) : undefined;
+            this.base(baseClass.$meta, protocols);
             this.extend({
                 /**
-                 * Gets the associated class.
+                 * Gets the associated base class.
+                 * @method getBase
+                 * @returns  {Function} base class.
+                 */                
+                getBase: function () { return baseClass; },
+                /**
+                 * Gets the associated class
                  * @method getClass
                  * @returns  {Function} class.
                  */                                
@@ -7877,8 +7475,8 @@ new function () { // closure
                 isProtocol: function () { return _isProtocol; },
                 getAllProtocols: function () {
                     var protocols = this.base();
-                    if (!_isProtocol && baseMeta) {
-                        var baseProtocols = baseMeta.getAllProtocols();
+                    if (!_isProtocol && baseClass.$meta) {
+                        var baseProtocols = baseClass.$meta.getAllProtocols();
                         for (var i = 0; i < baseProtocols.length; ++i) {
                             var protocol = baseProtocols[i];
                             if (protocols.indexOf(protocol) < 0) {
@@ -7906,24 +7504,14 @@ new function () { // closure
                     } else if ((protocol === subClass) || (subClass.prototype instanceof protocol)) {
                         return true;
                     }
-                    return this.base(protocol) ||
-                        !!(baseMeta && baseMeta.conformsTo(protocol));
-                },
-                inflate: function (step, metadata, target, definition, expand) {
-                    this.base(step, metadata, target, definition, expand);
-                    if (!_macros || _macros.length == 0) {
-                        return;
+                    if (this.base(protocol)) {
+                        return true;
                     }
-                    var active = (step !== MetaStep.Subclass);
-                    for (var i = 0; i < _macros.length; ++i) {
-                        var macro = _macros[i];
-                        if ($isFunction(macro.inflate) &&
-                            (!active || macro.isActive()) && macro.shouldInherit()) {
-                            macro.inflate(step, metadata, target, definition, expand);
-                        }
-                    }                    
+                    return baseClass && (baseClass !== Protocol) && baseClass.conformsTo
+                         ? baseClass.conformsTo(protocol)
+                         : false;
                 },
-                execute: function (step, metadata, target, definition) {
+                apply: function (step, metadata, target, definition) {
                     this.base(step, metadata, target, definition);
                     if (!_macros || _macros.length == 0) {
                         return;
@@ -7934,128 +7522,12 @@ new function () { // closure
                         var macro = _macros[i];
                         if ((!active  || macro.isActive()) &&
                             (!inherit || macro.shouldInherit())) {
-                            macro.execute(step, metadata, target, definition);
+                            macro.apply(step, metadata, target, definition);
                         }
                     }
-                },
-                /**
-                 * Creates a sub-class from the current class metadata.
-                 * @method createSubclass
-                 * @returns  {Function} the newly created class function.
-                 */                                                                
-                createSubclass: function _() {
-                    var args = Array.prototype.slice.call(arguments),
-                        constraints = args, protocols, mixins, macros;
-                    if (subClass.prototype instanceof Protocol) {
-                        (protocols = []).push(subClass);
-                    }
-                    if (args.length > 0 && $isArray(args[0])) {
-                        constraints = args.shift();
-                    }
-                    while (constraints.length > 0) {
-                        var constraint = constraints[0];
-                        if (!constraint) {
-                            break;
-                        } else if (constraint.prototype instanceof Protocol) {
-                            (protocols || (protocols = [])).push(constraint);
-                        } else if (constraint instanceof MetaMacro) {
-                            (macros || (macros = [])).push(constraint);
-                        } else if ($isFunction(constraint) && constraint.prototype instanceof MetaMacro) {
-                            (macros || (macros = [])).push(new constraint);
-                        } else if (constraint.prototype) {
-                            (mixins || (mixins = [])).push(constraint);
-                        } else {
-                            break;
-                        }
-                        constraints.shift();
-                    }
-                    var empty        = _.u  || (_.u = {}),
-                        classSpec    = _.cm || (_.cm = {
-                            enumerable:   false,
-                            configurable: false,
-                            writable:     false,
-                        }),
-                        instanceSpec = _.im || (_.im = {
-                            enumerable:   false,
-                            configurable: false,
-                            get:          ClassMeta.createInstanceMeta
-                        }),
-                        instanceDef  = args.shift() || empty,
-                        staticDef    = args.shift() || empty;
-                    this.inflate(MetaStep.Subclass, this, subClass.prototype, instanceDef, expand);
-                    if (macros) {
-                        for (var i = 0; i < macros.length; ++i) {
-                            macros[i].inflate(MetaStep.Subclass, this, subClass.prototype, instanceDef, expand);
-                        }
-                    }
-                    instanceDef  = expand.x || instanceDef;
-                    var derived  = ClassMeta.baseExtend.call(subClass, instanceDef, staticDef),
-                        metadata = new ClassMeta(this, derived, protocols, macros);
-                    classSpec.value = metadata;
-                    Object.defineProperty(derived, '$meta', classSpec);
-                    Object.defineProperty(derived.prototype, '$meta', instanceSpec);
-                    delete classSpec.value;
-                    derived.conformsTo = metadata.conformsTo.bind(metadata);
-                    metadata.execute(MetaStep.Subclass, metadata, derived.prototype, instanceDef);
-                    if (mixins) {
-                        Array2.forEach(mixins, derived.implement, derived);
-                    }
-                    function expand() {
-                        return expand.x || (expand.x = Object.create(instanceDef));
-                    }   
-                    return derived;                    
-                },
-                /**
-                 * Embellishes the class represented by this metadata.
-                 * @method embellishClass
-                 * @param   {Any} source  -  class function or object literal
-                 * @returns {Function} the underlying class.
-                 */
-                embellishClass: function (source) {
-                    if ($isFunction(source)) {
-                        source = source.prototype; 
-                    }
-                    if ($isSomething(source)) {
-                        this.inflate(MetaStep.Implement, this, subClass.prototype, source, expand);
-                        source = expand.x || source;
-                        ClassMeta.baseImplement.call(subClass, source);
-                        this.execute(MetaStep.Implement, this, subClass.prototype, source);
-                        function expand() {
-                            return expand.x || (expand.x = Object.create(source));
-                        };                    
-                    }
-                    return subClass;
                 }
             });
             this.addProtocol(protocols);
-        }
-    }, {
-        init: function () {
-            this.baseExtend    = Base.extend;
-            this.baseImplement = Base.implement;
-            Base.$meta         = new this(undefined, Base);
-            Abstract.$meta     = new this(Base.$meta, Abstract);            
-            Base.extend = Abstract.extend = function () {
-                return this.$meta.createSubclass.apply(this.$meta, arguments);
-            };
-            Base.implement = Abstract.implement = function () {
-                return this.$meta.embellishClass.apply(this.$meta, arguments);                
-            }
-            Base.prototype.conformsTo = function (protocol) {
-                return this.constructor.$meta.conformsTo(protocol);
-            };
-        },
-        createInstanceMeta: function _(parent) {
-            var spec = _.spec || (_.spec = {
-                enumerable:   false,
-                configurable: true,
-                writable:     false
-            });
-            var metadata = new InstanceMeta(parent || this.constructor.$meta);
-            spec.value = metadata;
-            Object.defineProperty(this, '$meta', spec);
-            delete spec.value;
-            return metadata;            
         }
     });
 
@@ -8067,101 +7539,158 @@ new function () { // closure
      * @extends miruken.MetaBase
      */
     var InstanceMeta = MetaBase.extend({
-        constructor: function (classMeta) {
-            this.base(classMeta);
+        constructor: function (parent) {
+            this.base(parent);
             this.extend({
                 /**
-                 * Gets the associated class.
+                 * Gets the associated base class.
+                 * @method getBase
+                 * @returns  {Function} base class.
+                 */                                
+                getBase: function () { return parent.getBase(); }, 
+                /**
+                 * Gets the associated class
                  * @method getClass
                  * @returns  {Function} class.
                  */                                              
-                getClass: function () { return classMeta.getClass(); },
+                getClass: function () { return parent.getClass(); },
                 /**
                  * Determines if the meta-data represents a protocol.
                  * @method isProtocol
                  * @returns  {boolean} true if a protocol, false otherwise.
                  */                                                
-                isProtocol: function () { return classMeta.isProtocol(); }
+                isProtocol: function () { return parent.isProtocol(); }
             });
-        }
-    }, {
-        init: function () {
-            var baseExtend = Base.prototype.extend;
-            Base.prototype.extend = function (key, value) {
-                var numArgs    = arguments.length,
-                    definition = (numArgs === 1) ? key : {};
-                if (numArgs >= 2) {
-                    definition[key] = value;
-                } else if (numArgs === 0) {
-                    return this;
-                }
-                var metadata = this.$meta;
-                if (metadata) {
-                    metadata.inflate(MetaStep.Extend, metadata, this, definition, expand);
-                    definition = expand.x || definition;
-                    function expand() {
-                        return expand.x || (expand.x = Object.create(definition));
-                    };                    
-                }
-                baseExtend.call(this, definition);                
-                if (metadata) {
-                    metadata.execute(MetaStep.Extend, metadata, this, definition);
-                }
-                return this;
-            }
         }
     });
 
-    Enum.$meta      = new ClassMeta(Base.$meta, Enum);
-    Enum.extend     = Base.extend
-    Enum.implement  = Base.implement;
+    var baseExtend   = Base.extend,
+        noDefinition = Object.freeze({}); 
+    Base.extend = Abstract.extend = function () {
+        return (function (base, args) {
+            var protocols, mixins, macros, 
+                constraints = args;
+            if (base.prototype instanceof Protocol) {
+                (protocols = []).push(base);
+            }
+            if (args.length > 0 && $isArray(args[0])) {
+                constraints = args.shift();
+            }
+            while (constraints.length > 0) {
+                var constraint = constraints[0];
+                if (!constraint) {
+                    break;
+                } else if (constraint.prototype instanceof Protocol) {
+                    (protocols || (protocols = [])).push(constraint);
+                } else if (constraint instanceof MetaMacro) {
+                    (macros || (macros = [])).push(constraint);
+                } else if ($isFunction(constraint) 
+                           &&  constraint.prototype instanceof MetaMacro) {
+                    (macros || (macros = [])).push(new constraint);
+                } else if (constraint.prototype) {
+                    (mixins || (mixins = [])).push(constraint);
+                } else {
+                    break;
+                }
+                constraints.shift();
+            }
+            var instanceDef = args.shift() || noDefinition,
+                staticDef   = args.shift() || noDefinition,
+                subclass    = baseExtend.call(base, instanceDef, staticDef),
+                metadata    = new ClassMeta(base, subclass, protocols, macros);
+            Object.defineProperty(subclass, META, {
+                enumerable:   false,
+                configurable: false,
+                writable:     false,
+                value:        metadata
+            });
+            Object.defineProperty(subclass.prototype, META, {
+                enumerable:   false,
+                configurable: false,
+                get:          _createInstanceMeta
+            });
+            subclass.conformsTo = metadata.conformsTo.bind(metadata);
+            metadata.apply(MetaStep.Subclass, metadata, subclass.prototype, instanceDef);
+            if (mixins) {
+                Array2.forEach(mixins, subclass.implement, subclass);
+            }
+            return subclass;
+            })(this, Array.prototype.slice.call(arguments));
+    };
+
+    function _createInstanceMeta(parent) {
+        var spec = _createInstanceMeta.spec ||
+            (_createInstanceMeta.spec = {
+                enumerable:   false,
+                configurable: true,
+                writable:     false
+            }),
+            metadata = new InstanceMeta(parent || this.constructor.$meta);
+        spec.value = metadata;
+        Object.defineProperty(this, META, spec);
+        delete spec.value;
+        return metadata;
+    }
+
+    Base.prototype.conformsTo = function (protocol) {
+        return this.constructor.$meta.conformsTo(protocol);
+    };
     
+    var implement = Base.implement;
+    Base.implement = Abstract.implement = function (source) {
+        if ($isFunction(source)) {
+            source = source.prototype; 
+        }
+        var metadata = this.$meta;
+        implement.call(this, source);
+        if (metadata) {
+            metadata.apply(MetaStep.Implement, metadata, this.prototype, source);
+        }
+        return this;
+    }
+
+    var extendInstance = Base.prototype.extend;
+    Base.prototype.extend = function (key, value) {
+        var definition = (arguments.length === 1) ? key : {};
+        if (arguments.length >= 2) {
+            definition[key] = value;
+        }
+        var metadata = this.$meta;
+        extendInstance.call(this, definition);
+        if (metadata) {
+            metadata.apply(MetaStep.Extend, metadata, this, definition);
+        }
+        return this;
+    }
+
     /**
-     * Metamacro to proxy protocol members through a delegate.<br/>
+     * Metamacro to proxy protocol methods through a delegate.<br/>
      * See {{#crossLink "miruken.Protocol"}}{{/crossLink}}
      * @class $proxyProtocol
      * @extends miruken.MetaMacro
      */
     var $proxyProtocol = MetaMacro.extend({
-        inflate: function (step, metadata, target, definition, expand) {
-            var protocolProto = Protocol.prototype, expanded;
+        apply: function (step, metadata, target, definition) {
+            var clazz = metadata.getClass();
+            if (clazz === Protocol) {
+                return;
+            }    
+            var protocolProto = Protocol.prototype;
             for (var key in definition) {
                 if (key in protocolProto) {
                     continue;
                 }
-                expanded = expanded || expand();
-                var member = _getPropertyDescriptor(definition, key);
-                if ($isFunction(member.value)) {
-                    (function (method) {
-                        member.value = function () {
+                var member = target[key];
+                if ($isFunction(member)) {
+                    (function (methodName) {
+                        target[methodName] = function () {
                             var args = Array.prototype.slice.call(arguments);
-                            return this.__invoke(method, args);
-                        };
+                            return this.__invoke(methodName, args);
+                        }
                     })(key);
-                } else if (member.get || member.set) {
-                    if (member.get) {
-                        (function (get) {
-                            member.get = function () {
-                                return this.__get(get);
-                            };
-                        })(key);
-                    }
-                    if (member.set) {
-                        (function (set) {                        
-                            member.set = function (value) {
-                                return this.__set(set, value);
-                            }
-                        })(key);
-                    }
-                } else {
-                    continue;
                 }
-                Object.defineProperty(expanded, key, member);                
-            }            
-        },
-        execute: function (step, metadata, target, definition) {
+            }
             if (step === MetaStep.Subclass) {
-                var clazz = metadata.getClass();                
                 clazz.adoptedBy = Protocol.adoptedBy;
             }
         },
@@ -8189,9 +7718,10 @@ new function () { // closure
          */        
         isActive: True
     });
-    Protocol.extend    = Base.extend
-    Protocol.implement = Base.implement;
-    Protocol.$meta     = new ClassMeta(Base.$meta, Protocol, null, [new $proxyProtocol]);
+    Protocol.extend     = Base.extend
+    Protocol.implement  = Base.implement;
+    Protocol.$meta      = new ClassMeta(Base, Protocol, null, [new $proxyProtocol]);
+    Protocol.$meta.apply(MetaStep.Subclass, Protocol.$meta, Protocol.prototype);
 
     /**
      * Protocol base requiring conformance to match methods.
@@ -8207,8 +7737,6 @@ new function () { // closure
         }
     });
 
-    var GETTER_CONVENTIONS = ['get', 'is'];
-    
     /**
      * Metamacro to define class properties.  This macro is automatically applied.
      * <pre>
@@ -8229,7 +7757,7 @@ new function () { // closure
      *                        this.lastName = parts[1];
      *                    }
      *                }
-     *            }
+     *            },
      *        }
      *    })
      * </pre>
@@ -8241,19 +7769,19 @@ new function () { // closure
      */
     var $properties = MetaMacro.extend({
         constructor: function _(tag) {
-            if ($isNothing(tag)) {
-                throw new Error("$properties requires a tag name");
-            }
-            Object.defineProperty(this, 'tag', { value: tag });
+            var spec = _.spec || (_.spec = {});
+            spec.value = tag || '$properties';
+            Object.defineProperty(this, 'tag', spec);
         },
-        execute: function _(step, metadata, target, definition) {
-            var properties = this.extractProperty(this.tag, target, definition); 
-            if (!properties) {
+        apply: function _(step, metadata, target, definition) {
+            if ($isNothing(definition) || !definition.hasOwnProperty(this.tag)) {
                 return;
             }
-            var expanded = {}, source;
+            var properties = definition[this.tag];
+            if ($isFunction(properties)) {
+                properties = properties();
+            }
             for (var name in properties) {
-                source = expanded;
                 var property = properties[name],
                     spec = _.spec || (_.spec = {
                         configurable: true,
@@ -8263,34 +7791,48 @@ new function () { // closure
                     typeOf(property.length) == "number" || typeOf(property) !== 'object') {
                     property = { value: property };
                 }
-                if (name in definition) {
-                    source = null;  // don't replace standard property
-                } else if (property.get || property.set) {
-                    spec.get = property.get;
-                    spec.set = property.set;
-                } else if (target instanceof Protocol) {
-                    // $proxyProtocol will do the real work
-                    spec.get = spec.set = Undefined;
-                } else if ("auto" in property) {
-                    var field = property.auto;
-                    if (!(field && $isString(field))) {
-                        field = "_" + name;
-                    }
-                    spec.get = function () { return this[field]; };
-                    spec.set = function (value) { this[field] = value; };
+                if (target instanceof Protocol) {
+                    spec.get = function (get) {
+                        return function () {
+                            return this.__get(get);
+                        };
+                    }(name);
+                    spec.set = function (set) {
+                        return function (value) {
+                            return this.__set(set, value);
+                        };
+                    }(name);
                 } else {
                     spec.writable = true;
-                    spec.value    = property.value;
+                    if (property.get || property.set) {
+                        var methods = {},
+                            cname   = name.charAt(0).toUpperCase() + name.slice(1);
+                        if (property.get) {
+                            var get      = 'get' + cname; 
+                            methods[get] = property.get;
+                            spec.get     = _makeGetter(get);
+                        }
+                        if (property.set) {
+                            var set      = 'set' + cname 
+                            methods[set] = property.set;
+                            spec.set     = _makeSetter(set); 
+                        }
+                        if (step == MetaStep.Extend) {
+                            target.extend(methods);
+                        } else {
+                            metadata.getClass().implement(methods);
+                        }
+                        delete spec.writable;
+                    } else {
+                        spec.value = property.value;
+                    }
                 }
                 _cleanDescriptor(property);
-                this.defineProperty(metadata, source, name, spec, property);                
+                this.defineProperty(metadata, target, name, spec, property);
                 _cleanDescriptor(spec);
             }
-            if (step == MetaStep.Extend) {
-                target.extend(expanded);
-            } else {
-                metadata.getClass().implement(expanded);
-            }
+            delete definition[this.tag];
+            delete target[this.tag];
         },
         defineProperty: function(metadata, target, name, spec, descriptor) {
             metadata.defineProperty(target, name, spec, descriptor);
@@ -8307,16 +7849,33 @@ new function () { // closure
          * @returns {boolean} true
          */                
         isActive: True
-    }, {
-        init: function () {
-            Object.defineProperty(this, 'shared', {
-                enumerable:   false,
-                configurable: false,
-                writable:     false,
-                value:        Object.freeze(new this("$properties"))
-            });
-        }
     });
+
+    function _makeGetter(getMethodName) {
+        return function () {
+            var getter = this[getMethodName];
+            if ($isFunction(getter)) {
+                return getter.call(this);
+            }
+        };   
+    }
+
+    function _makeSetter(setMethodName) {
+        return function (value) {
+            var setter = this[setMethodName];
+            if ($isFunction(setter)) {
+                setter.call(this, value);
+                return value;
+            }
+        };
+    }
+
+    function _cleanDescriptor(descriptor) {
+        delete descriptor.writable;
+        delete descriptor.value;
+        delete descriptor.get;
+        delete descriptor.set;
+    }
 
     /**
      * Metamacro to derive class properties from existng methods.
@@ -8333,50 +7892,31 @@ new function () { // closure
      * @extends miruken.MetaMacro
      */
     var $inferProperties = MetaMacro.extend({
-        inflate: function _(step, metadata, target, definition, expand) {
-            var expanded;
+        apply: function _(step, metadata, target, definition) {
             for (var key in definition) {
-                var member = _getPropertyDescriptor(definition, key);
-                if ($isFunction(member.value)) {
-                    var spec = _.spec || (_.spec = {
-                        configurable: true,
-                        enumerable:   true
-                    });
-                    var name = this.inferProperty(key, member.value, definition, spec);
-                    if (name) {
-                        expanded = expanded || expand();
-                        Object.defineProperty(expanded, name, spec);
-                        _cleanDescriptor(spec);                        
-                    }
+                var value = definition[key];
+                if (!$isFunction(value)) {
+                    continue;
                 }
-            }            
+                var spec = _.spec || (_.spec = {
+                    configurable: true,
+                    enumerable:   true
+                });
+                if (_inferProperty(key, value, definition, spec)) {
+                    var name = spec.name;
+                    if (name && !(name in target)) {
+                        spec.get = _makeGetter(spec.get);
+                        spec.set = _makeSetter(spec.set);                        
+                        this.defineProperty(metadata, target, name, spec);
+                    }
+                    delete spec.name;
+                    delete spec.get;
+                    delete spec.set;
+                }
+            }
         },
-        inferProperty: function (key, method, definition, spec) {
-            for (var i = 0; i < GETTER_CONVENTIONS.length; ++i) {
-                var prefix = GETTER_CONVENTIONS[i];
-                if (key.lastIndexOf(prefix, 0) == 0) {
-                    if (method.length === 0) {  // no arguments
-                        spec.get   = method;                        
-                        var name   = key.substring(prefix.length),
-                            setter = definition['set' + name];
-                        if ($isFunction(setter)) {
-                            spec.set = setter;
-                        }
-                        return name.charAt(0).toLowerCase() + name.slice(1);
-                    }
-                }
-            }
-            if (key.lastIndexOf('set', 0) == 0) {
-                if (method.length === 1) {  // 1 argument
-                    spec.set   = method;                    
-                    var name   = key.substring(3),
-                        getter = definition['get' + name];
-                    if ($isFunction(getter)) {
-                        spec.get = getter;
-                    }
-                    return name.charAt(0).toLowerCase() + name.slice(1);
-                }
-            }
+        defineProperty: function(metadata, target, name, spec) {
+            metadata.defineProperty(target, name, spec);
         },
         /**
          * Determines if the macro should be inherited
@@ -8392,13 +7932,32 @@ new function () { // closure
         isActive: True
     });
 
-    function _cleanDescriptor(descriptor) {
-        delete descriptor.writable;
-        delete descriptor.value;
-        delete descriptor.get;
-        delete descriptor.set;
+    var GETTER_CONVENTIONS = ['get', 'is'];
+
+    function _inferProperty(key, value, definition, spec) {
+        for (var i = 0; i < GETTER_CONVENTIONS.length; ++i) {
+            var prefix = GETTER_CONVENTIONS[i];
+            if (key.lastIndexOf(prefix, 0) == 0) {
+                if (value.length === 0) {  // no arguments
+                    var name  = key.substring(prefix.length);
+                    spec.get  = key;
+                    spec.set  = 'set' + name;
+                    spec.name = name.charAt(0).toLowerCase() + name.slice(1);
+                    return true;
+                }
+            }
+        }
+        if (key.lastIndexOf('set', 0) == 0) {
+            if (value.length === 1) {  // 1 argument
+                var name  = key.substring(3);
+                spec.set  = key;
+                spec.get  = 'get' + name;
+                spec.name = name.charAt(0).toLowerCase() + name.slice(1);
+                return true;
+            }
+        }
     }
-    
+
     /**
      * Metamacro to inherit static members in subclasses.
      * <pre>
@@ -8428,7 +7987,7 @@ new function () { // closure
             Object.defineProperty(this, 'members', spec);
             delete spec.value;
         },
-        execute: function (step, metadata, target) {
+        apply: function (step, metadata, target) {
             if (step === MetaStep.Subclass) {
                 var members  = this.members,
                     clazz    = metadata.getClass(),
@@ -8458,113 +8017,6 @@ new function () { // closure
     });
 
     /**
-     * Delegates properties and methods to another object.<br/>
-     * See {{#crossLink "miruken.Protocol"}}{{/crossLink}}
-     * @class Delegate
-     * @extends Base
-     */
-    var Delegate = Base.extend({
-        /**
-         * Delegates the property get on the protocol.
-         * @method get
-         * @param   {miruken.Protocol} protocol      - receiving protocol
-         * @param   {string}           propertyName  - name of the property
-         * @param   {boolean}          strict        - true if target must adopt protocol
-         * @returns {Any} result of the proxied get.
-         */
-        get: function (protocol, propertyName, strict) {},
-        /**
-         * Delegates the property set on the protocol.
-         * @method set
-         * @param   {miruken.Protocol} protocol      - receiving protocol
-         * @param   {string}           propertyName  - name of the property
-         * @param   {Object}           propertyValue - value of the property
-         * @param   {boolean}          strict        - true if target must adopt protocol
-         */
-        set: function (protocol, propertyName, propertyValue, strict) {},
-        /**
-         * Delegates the method invocation on the protocol.
-         * @method invoke
-         * @param   {miruken.Protocol} protocol      - receiving protocol
-         * @param   {string}           methodName  - name of the method
-         * @param   {Array}            args        - method arguments
-         * @param   {boolean}          strict      - true if target must adopt protocol
-         * @returns {Any} result of the proxied invocation.
-         */
-         invoke: function (protocol, methodName, args, strict) {}
-    });
-
-    /**
-     * Delegates properties and methods to an object.
-     * @class ObjectDelegate
-     * @constructor
-     * @param   {Object}  object  - receiving object
-     * @extends miruken.Delegate
-     */
-    var ObjectDelegate = Delegate.extend({
-        constructor: function (object) {
-            Object.defineProperty(this, 'object', { value: object });
-        },
-        get: function (protocol, propertyName, strict) {
-            var object = this.object;
-            if (object && (!strict || protocol.adoptedBy(object))) {
-                return object[propertyName];
-            }
-        },
-        set: function (protocol, propertyName, propertyValue, strict) {
-            var object = this.object;
-            if (object && (!strict || protocol.adoptedBy(object))) {
-                return object[propertyName] = propertyValue;
-            }
-        },
-        invoke: function (protocol, methodName, args, strict) {
-            var object = this.object;
-            if (object && (!strict || protocol.adoptedBy(object))) {
-                var method = object[methodName];                
-                return method && method.apply(object, args);
-            }
-        }
-    });
-
-    /**
-     * Delegates properties and methods to an array.
-     * @class ArrayDelegate
-     * @constructor
-     * @param   {Array}  array  - receiving array
-     * @extends miruken.Delegate
-     */
-    var ArrayDelegate = Delegate.extend({
-        constructor: function (array) {
-            Object.defineProperty(this, 'array', { value: array });
-        },
-        get: function (protocol, propertyName, strict) {
-            var array = this.array;
-            return array && Array2.reduce(array, function (result, object) {
-                return !strict || protocol.adoptedBy(object)
-                     ? object[propertyName]
-                     : result;
-            }, undefined);  
-        },
-        set: function (protocol, propertyName, propertyValue, strict) {
-            var array = this.array;
-            return array && Array2.reduce(array, function (result, object) {
-                return !strict || protocol.adoptedBy(object)
-                     ? object[propertyName] = propertyValue
-                     : result;
-            }, undefined);  
-        },
-        invoke: function (protocol, methodName, args, strict) {
-            var array = this.array;
-            return array && Array2.reduce(array, function (result, object) {
-                var method = object[methodName];
-                return method && (!strict || protocol.adoptedBy(object))
-                     ? method.apply(object, args)
-                     : result;
-            }, undefined);
-        }
-    });
-    
-    /**
      * Base class to prefer coercion over casting.
      * By default, Type(target) will cast target to the type.
      * @class Miruken
@@ -8585,7 +8037,7 @@ new function () { // closure
          */
         initialize: function () {}
     });
-    
+
     /**
      * Protocol for targets that manage disposal lifecycle.
      * @class Disposing
@@ -8607,20 +8059,12 @@ new function () { // closure
      */
     var DisposingMixin = Module.extend({
         dispose: function (object) {
-            var dispose = object._dispose;
-            if ($isFunction(dispose)) {
-                object.dispose = Undefined;  // dispose once                
-                return dispose.call(object);
+            if ($isFunction(object._dispose)) {
+                object._dispose();
+                object.dispose = Undefined;  // dispose once
             }
         }
     });
-
-    /**
-     * Protocol marking resolve semantics.
-     * @class Resolving
-     * @extends miruken.Protocol
-     */
-    var Resolving = Protocol.extend();
 
     /**
      * Protocol for targets that can execute functions.
@@ -8687,33 +8131,23 @@ new function () { // closure
      */
     function $using(disposing, action, context) {
         if (disposing && $isFunction(disposing.dispose)) {
-            if (!$isPromise(action)) {
+            if ($isFunction(action)) {
                 var result;
                 try {
-                    result = $isFunction(action)
-                           ? action.call(context, disposing)
-                           : action;
-                    if (!$isPromise(result)) {
-                        return result;
-                    }
+                    result = action.call(context, disposing);
+                    return result;
                 } finally {
                     if ($isPromise(result)) {
                         action = result;
                     } else {
-                        var dresult = disposing.dispose();
-                        if (dresult !== undefined) {
-                            return dresult;
-                        }
+                        disposing.dispose();
                     }
                 }
+            } else if (!$isPromise(action)) {
+                return;
             }
-            return action.then(function (res) {
-                var dres = disposing.dispose();
-                return dres !== undefined ? dres : res;
-            }, function (err) {
-                var dres = disposing.dispose();
-                return dres !== undefined ? dres : Promise.reject(err);
-            });
+            action.finally(function () { disposing.dispose(); });
+            return action;
         }
     }
 
@@ -9006,8 +8440,9 @@ new function () { // closure
     /**
      * Facet choices for proxies.
      * @class Facet
+     * @extends miruken.Enum
      */
-    var Facet = Object.freeze({
+    var Facet = Enum({
         /**
          * @property {string} Parameters
          */
@@ -9024,7 +8459,7 @@ new function () { // closure
          * @property {string} Delegate
          */                        
         Delegate: 'delegate'
-    });
+        });
 
 
     /**
@@ -9050,12 +8485,12 @@ new function () { // closure
      */
     var InterceptorSelector = Base.extend({
         /**
-         * Selects the interceptors to apply for the method.
+         * Description goes here
          * @method selectInterceptors
-         * @param    {Type}    type         - intercepted type
-         * @param    {string}  method       - intercepted method name
+         * @param    {Type}    type         - type being intercepted
+         * @param    {string}  method       - method name
          * @param    {Array}   interceptors - available interceptors
-         * @returns  {Array} interceptors to apply to method.
+         * @returns  {Array} effective interceptors
          */
         selectInterceptors: function (type, method, interceptors) {
             return interceptors;
@@ -9071,8 +8506,8 @@ new function () { // closure
         /**
          * Builds a proxy class for the supplied types.
          * @method buildProxy
-         * @param    {Array}     ...types  -  classes and protocols
-         * @param    {Object}    options   -  literal options
+         * @param    {Array}     ...types    - classes and protocols
+         * @param    {Object}    options     - literal options
          * @returns  {Function}  proxy class.
          */
         buildProxy: function(types, options) {
@@ -9087,23 +8522,23 @@ new function () { // closure
 
     function _buildProxy(classes, protocols, options) {
         var base  = options.baseType || classes.shift() || Base,
-            proxy = base.extend(classes.concat(protocols), {
+            proxy = base.extend(protocols.concat(classes), {
             constructor: function _(facets) {
                 var spec = _.spec || (_.spec = {});
                 spec.value = facets[Facet.InterceptorSelectors]
                 if (spec.value && spec.value.length > 0) {
-                    Object.defineProperty(this, "selectors", spec);
+                    Object.defineProperty(this, 'selectors', spec);
                 }
                 spec.value = facets[Facet.Interceptors];
                 if (spec.value && spec.value.length > 0) {
-                    Object.defineProperty(this, "interceptors", spec);
+                    Object.defineProperty(this, 'interceptors', spec);
                 }
                 spec.value = facets[Facet.Delegate];
                 if (spec.value) {
                     spec.writable = true;
-                    Object.defineProperty(this, "delegate", spec);
+                    Object.defineProperty(this, 'delegate', spec);
                 }
-                var ctor = _proxyMethod("constructor", this.base, base);
+                ctor = _proxyMethod('constructor', this.base, base);
                 ctor.apply(this, facets[Facet.Parameters]);
                 delete spec.writable;
                 delete spec.value;
@@ -9138,7 +8573,7 @@ new function () { // closure
             var source      = sources[i],
                 sourceProto = source.prototype,
                 isProtocol  = $isProtocol(source);
-            for (var key in sourceProto) {
+            for (key in sourceProto) {
                 if (!((key in proxied) || (key in _noProxyMethods))
                 && (!proxy.shouldProxy || proxy.shouldProxy(key, source))) {
                     var descriptor = _getPropertyDescriptor(sourceProto, key);
@@ -9200,7 +8635,7 @@ new function () { // closure
             var invocation = {
                 args: Array.prototype.slice.call(arguments),
                 useDelegate: function (value) {
-                    delegate = value;
+                    delegate = value; 
                 },
                 replaceDelegate: function (value) {
                     _this.delegate = delegate = value;
@@ -9252,7 +8687,7 @@ new function () { // closure
         if (arguments.length >= 2) {
             overrides[arguments[0]] = arguments[1];
         }
-        for (var methodName in overrides) {
+        for (methodName in overrides) {
             if (!(methodName in _noProxyMethods) && 
                 (!proxy.shouldProxy || proxy.shouldProxy(methodName, clazz))) {
                 var method = this[methodName];
@@ -9400,7 +8835,7 @@ new function () { // closure
      * @returns  {boolean} true if value null or undefined.
      */
     function $isNothing(value) {
-        return value == null;
+        return (value === undefined) || (value === null);
     }
 
     /**
@@ -9410,7 +8845,7 @@ new function () { // closure
      * @returns  {boolean} true if value not null or undefined.
      */
     function $isSomething(value) {
-        return value != null;
+        return !$isNothing(value);
     }
 
     /**
@@ -9462,7 +8897,7 @@ new function () { // closure
                 spec      = $decorator.spec || ($decorator.spec = {});
             spec.value = decoratee;
             Object.defineProperty(decorator, 'decoratee', spec);
-            ClassMeta.createInstanceMeta.call(decorator, decoratee.$meta);
+            _createInstanceMeta.call(decorator, decoratee.$meta);
             if (decorations) {
                 decorator.extend(decorations);
             }
@@ -9530,12 +8965,12 @@ new function () { // closure
             return defaultReturnValue;
         };
     };
-
-    function _getPropertyDescriptor(object, key, own) {
+    
+    function _getPropertyDescriptor(object, key) {
         var source = object, descriptor;
         while (source && !(
             descriptor = Object.getOwnPropertyDescriptor(source, key))
-              ) source = own ? null : Object.getPrototypeOf(source);
+              ) source = Object.getPrototypeOf(source);
         return descriptor;
     }
 
@@ -9554,10 +8989,10 @@ new function () { // closure
         };
 
     if (typeof module !== 'undefined' && module.exports) {
-        module.exports = exports = this.package;
+        module.exports = exports = miruken;
     }
 
-    global.miruken = this.package;
+    global.miruken = miruken;
     global.Miruken = Miruken;
 
     eval(this.exports);
@@ -9565,15 +9000,17 @@ new function () { // closure
 }
 
 }).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"./base2.js":5,"bluebird":25}],15:[function(require,module,exports){
+},{"./base2.js":3}],13:[function(require,module,exports){
 var miruken = require('../miruken.js'),
     Promise = require('bluebird');
-              require('./view.js');
+              require('../mvc/view.js');
 
 new function () { // closure
 
-    miruken.package(this, {
+    var mvc = new base2.Package(this, {
         name:    "mvc",
+        version: miruken.version,
+        parent:  miruken,
         imports: "miruken,miruken.mvc",
         exports: "Bootstrap,BootstrapProvider"
     });
@@ -9585,7 +9022,7 @@ new function () { // closure
      * @class Bootstrap
      * @extends miruken.mvc.ModalProviding
      */    
-    var Bootstrap = ModalProviding.extend();
+    var Bootstrap = ModalProviding.extend(TabProviding);
     
     /**
      * Bootstrap provider.
@@ -9594,8 +9031,11 @@ new function () { // closure
      * @uses miruken.mvc.Bootstrap
      */    
     var BootstrapProvider = Base.extend(Bootstrap, {
+        tabContent: function () {
+            return "<div>Hello</div>";
+        },
         showModal: function (container, content, policy, context) {
-            return new Promise(function (resolve, reject) {
+            var promise = new Promise(function (resolve, reject) {
                 if (policy.chrome) {    
                     $('body').append(_buildChrome(policy));
                     $('.modal-body').append(content);
@@ -9633,6 +9073,13 @@ new function () { // closure
                     }
                     close(result)
                 });
+            });
+            return context.decorate({
+                $properties: {
+                    modalResult: {
+                        get: function () { return promise; }
+                    }
+                }
             });
         }
     });
@@ -9694,13 +9141,115 @@ new function () { // closure
     
 }
 
-},{"../miruken.js":14,"./view.js":21,"bluebird":25}],16:[function(require,module,exports){
+},{"../miruken.js":12,"../mvc/view.js":19,"bluebird":23}],14:[function(require,module,exports){
+var miruken = require('../miruken.js');
+              require('../mvc/controller.js');
+
+new function () { // closure
+
+    var mvc = new base2.Package(this, {
+        name:    "mvc",
+        version: miruken.version,
+        parent:  miruken,
+        imports: "miruken,miruken.callback",
+        exports: "TabProviding,TabController,ModalPolicy,ModalProviding,FadePolicy,FadeProviding"
+    });
+
+    eval(this.imports);
+
+    /**
+     * Protocol for interacting with a tab provider.
+     * @class TabProviding
+     * @extends StrictProtocol
+     */    
+    var TabProviding = StrictProtocol.extend({
+        /**
+         * Creates the DOM container for the tabs.
+         * @method tabContainer
+         * @returns {Element} DOM element representing the tab container.
+         */        
+        tabContainer: function () {}
+    });
+
+    /**
+     * Controller for managing a set of named tabs.
+     * @class TabController
+     * @extends miruken.mvc.Controller
+     */    
+    var TabController = Controller.extend({
+        getTab: function (name) {
+        },
+        addTab: function (name) {
+        }
+    });
+
+    /**
+     * Policy for describing modal presentation.
+     * @class ModalPolicy
+     * @extends miruken.mvc.PresentationPolicy
+     */
+    var ModalPolicy = PresentationPolicy.extend({
+        $properties: {
+            title:      '',
+            style:      null,
+            chrome:     true,
+            header:     false,
+            footer:     false,
+            forceClose: false,
+            buttons:    null
+        }
+    });
+
+    /**
+     * Protocol for interacting with a modal provider.
+     * @class ModalProviding
+     * @extends StrictProtocol
+     */
+    var ModalProviding = StrictProtocol.extend({
+        /**
+         * Presents the content in a modal dialog.
+         * @method showModal
+         * @param   {Element}                  container  -  element modal bound to
+         * @param   {Element}                  content    -  modal content element
+         * @param   {miruken.mvc.ModalPolicy}  policy     -  modal policy options
+         * @param   {miruken.context.Context}  context    -  modal context
+         * @returns {Promise} promise representing the modal result.
+         */
+        showModal: function (container, content, policy, context) {}
+    });
+
+    var FadePolicy = PresentationPolicy.extend();
+
+    var FadeProviding = StrictProtocol.extend({
+        handle: function (container, content, context) {}
+    });
+
+    CallbackHandler.implement({
+        /**
+         * Configures modal presentation options.
+         * @method modal
+         * @param {Object}  options  -  modal options
+         * @returns {miruken.callback.CallbackHandler} modal handler.
+         * @for miruken.callback.CallbackHandler
+         */                                                                
+        modal: function (options) {
+            return this.presenting(new ModalPolicy(options));
+        },
+
+        fade: function (options) {
+            return this.presenting(new FadePolicy(options));
+        }
+    });
+    
+    eval(this.exports);
+
+}
+
+},{"../miruken.js":12,"../mvc/controller.js":15}],15:[function(require,module,exports){
 var miruken = require('../miruken.js');
               require('../callback.js');
               require('../context.js');
-              require('../error.js');
               require('../validate');
-var Promise = require('bluebird');
 
 new function () { // closure
 
@@ -9714,293 +9263,45 @@ new function () { // closure
      * @submodule mvc
      * @namespace miruken.mvc
      */
-    miruken.package(this, {
+    var mvc = new base2.Package(this, {
         name:    "mvc",
-        imports: "miruken,miruken.callback,miruken.context,miruken.validate,miruken.error",
-        exports: "Controller,ControllerNotFound,Navigate,Navigation,NavigateCallbackHandler"
+        version: miruken.version,
+        parent:  miruken,
+        imports: "miruken,miruken.callback,miruken.context,miruken.validate",
+        exports: "Controller,MasterDetail,MasterDetailAware"
     });
 
     eval(this.imports);
-
-    var globalPrepare = new Array2(),
-        globalExecute = new Array2();
-
-    /**
-     * Captures a navigation context.
-     * @class Navigation
-     * @extends Base
-     */        
-    var Navigation = Base.extend({
-        push:       undefined,
-        controller: undefined,
-        action:     undefined,
-        args:       undefined
-    });
     
-    /**
-     * Protocol to navigate controllers.
-     * @class Navigate
-     * @extends miruken.StrictProtocol
-     */
-    var Navigate = StrictProtocol.extend({
-        /**
-         * Transitions to next `action` on `controller`.
-         * @method next
-         * @param   {Any}       controller     -  controller key
-         * @param   {Function}  action         -  controller action
-         * @param   {Function}  [configureIO]  -  configures io
-         * @returns {Promise} promise when transition complete.
-         */        
-        next: function (controller, action, configureIO) {},
-        /**
-         * Transitions to next `action` on `controller` in a new context.
-         * @method to
-         * @param   {Any}       controller    -  controller key
-         * @param   {Function}  action        -  controller action
-         * @param   {Function}  [confgureIO]  -  configures io
-         * @returns {Promise} promise when transition complete.
-         */        
-        push: function (controller, action, configureIO) {}        
-    });
-
     /**
      * Base class for controllers.
      * @class Controller
      * @constructor
      * @extends miruken.callback.CallbackHandler
-     * @uses miruken.context.$contextual
-     * @uses miruken.validate.$validateThat
+     * @uses miruken.$inferProperties
+     * @uses miruken.context.$contextual,
+     * @uses miruken.validate.$validateThat,
      * @uses miruken.validate.Validating
      */
     var Controller = CallbackHandler.extend(
-        DisposingMixin, Validating, $contextual, $validateThat, {
-            
-        get ifValid() {
-            return this.io.$validAsync(this);
-        },
-
-        show: function (handler, view) {
-            return handler instanceof CallbackHandler
-                 ? miruken.mvc.ViewRegion(handler).show(view)
-                 : miruken.mvc.ViewRegion(io).show(handler);
-        },
-        next: function (controller, handler) {
-            var io = handler || this.io || this.context;            
-            return createTrampoline(controller, io, "next");
-        },
-        push: function (controller, handler) {
-            var io = handler || this.io || this.context;
-            return createTrampoline(controller, io, "push");
-        },                                                
+        $inferProperties, $contextual, $validateThat, Validating, {
         validate: function (target, scope) {
-            return _validate.call(this, target, "validate", scope);
+            return _validateController(this, target, 'validate', scope);
         },
         validateAsync: function (target, scope) {
-            return _validate.call(this, target, "validateAsync", scope);
-        },
-        _dispose: function () {
-            this.context = null;
-            delete this.io;
-        }
-    }, {
-        coerce: function (source) {
-            var controller = this;
-            return {
-                get next() {
-                    return createTrampoline(controller, source, "next");
-                },
-                get push() {
-                    return createTrampoline(controller, source, "push");
-                }
-            };
-        },
-        get prepare() { return globalPrepare; },
-        get execute() { return globalExecute; }        
-    });
-
-    var TRAMPOLINE_IGNORE = [ "base", "constructor", "initialize", "dispose" ];
-
-    function createTrampoline(controller, source, action) {
-        if (!(controller.prototype instanceof Controller)) {
-            throw new TypeError(format("%1 is not a Controller", controller));
-        }        
-        var trampoline = {},
-            navigate   = Navigate(source),
-            obj        = controller.prototype;
-        action = navigate[action];
-        do {
-            Array2.forEach(Object.getOwnPropertyNames(obj), function (key) {
-                if (TRAMPOLINE_IGNORE.indexOf(key) >= 0 ||
-                    key.lastIndexOf("_", 0) === 0 ||
-                    (key in trampoline)) { return; }
-                var descriptor = Object.getOwnPropertyDescriptor(obj, key);
-                if (descriptor == null || !$isFunction(descriptor.value)) {
-                    return;
-                }
-                trampoline[key] = function () {
-                    var args = Array.prototype.slice.call(arguments);
-                    return action.call(navigate, controller, function (ctrl) {
-                        return ctrl[key].apply(ctrl, args);
-                    }, function (io, ctrl) {
-                        return io.$$provide([Navigation, new Navigation({
-                            push:       action === "push",
-                            controller: ctrl,
-                            action:     key,
-                            args:       args
-                        })]);
-                    });
-                };
-            });
-        } while (obj = Object.getPrototypeOf(obj) && obj instanceof Controller);
-        return trampoline;
-    }
-
-    /**
-     * Represents the failure to resolve a `controller`.
-     * @class ControllerNotFound
-     * @constructor
-     * @param  {Any}  controller  -  controller key
-     * @extends Error
-     */    
-    function ControllerNotFound(controller) {
-        this.message    = format("The controller '%1' could not be resolved", controller);
-        this.controller = controller;
-        
-        if (Error.captureStackTrace) {
-            Error.captureStackTrace(this, this.constructor);
-        } else {
-            Error.call(this);
-        }
-    }
-    ControllerNotFound.prototype             = new Error;
-    ControllerNotFound.prototype.constructor = ControllerNotFound;
-     
-    /**
-     * Default navigation implementation.
-     * @class NavigateCallbackHandler
-     * @constructor
-     * @extends miruken.callback.CompositeCallbackHandler
-     * @uses miruken.mvc.Navigate
-     */    
-    var NavigateCallbackHandler = CompositeCallbackHandler.extend(Navigate, {
-        next: function (controller, action, configureIO) {
-            return this.to(controller, action, false, configureIO);
-        },
-        push: function (controller, action, configureIO) {
-            return this.to(controller, action, true, configureIO);
-        },        
-        to: function (controller, action, push, configureIO) {
-            if (action == null) {
-                return Promise.reject(new Error("Missing action"));
-            };
-            
-            var composer  = $composer,
-                context   = composer.resolve(Context),
-                initiator = composer.resolve(Controller),
-                ctx       = push ? context.newChild() : context;
-
-            return Promise.resolve(ctx.resolve(controller))
-                .then(function (ctrl) {
-                    if (!ctrl) {
-                        return Promise.reject(new ControllerNotFound(controller));
-                    }
-                    try {
-                        if (push) {
-                            composer = composer.pushLayer();
-                        } else if ((ctrl != initiator) && (initiator != null) &&
-                                   (initiator.context == ctx)) {
-                            initiator.context = null;
-                        }
-                        var io = ctx === context ? composer
-                               : ctx.$self().next(composer);
-                        if ($isFunction(configureIO)) {
-                            io = configureIO(io, ctrl) || io;
-                        }
-                        _bindIO(io, ctrl);                        
-                        return action(ctrl);
-                    } catch (exception) {
-                        return Errors(ctrl.io).handleException(exception);
-                    } finally {
-                        _bindIO(null, ctrl);
-                    }
-                });
+            return _validateController(this, target, 'validateAsync', scope);
         }
     });
 
-    function _bindIO(io, controller) {
-        io = _assemble(io || controller.context, globalPrepare, controller);
-        if (io == null) {
-            delete controller.io;
-            return;
-        }
-        if (globalExecute.length === 0) {
-            controller.io = io;
-            return;
-        }
-        var executor   = controller.io = io.decorate({
-            toDelegate: function () {
-                var ex = _assemble(this, globalExecute, controller);
-                delete executor.toDelegate;
-                return ex.toDelegate();
-            }
-        });
-    }
-
-    function _assemble(handler, builders, context) {
-        return handler && builders
-             ?  builders.reduce(function (result, builder) {
-                 return $isFunction(builder)
-                     ? builder.call(context, result) || result
-                     : result;
-                }, handler)
-            : handler;
-    }
-    
-    function _validate(target, method, scope) {
-        var context = this.context;
+    function _validateController(controller, target, method, scope) {
+        var context = controller.context;
         if (!context) {
             throw new Error("Validation requires a context to be available.");
         }
         var validator = Validator(context);
-        return validator[method].call(validator, target || this, scope);
+        return validator[method].call(validator, target || controller, scope);
     }
-    
-    eval(this.exports);
-    
-}
 
-},{"../callback.js":6,"../context.js":7,"../error.js":8,"../miruken.js":14,"../validate":22,"bluebird":25}],17:[function(require,module,exports){
-module.exports = require('./model.js');
-require('./view.js');
-require('./controller.js');
-require('./master-detail.js');
-require('./bootstrap.js');
-require('./route.js');
-
-
-},{"./bootstrap.js":15,"./controller.js":16,"./master-detail.js":18,"./model.js":19,"./route.js":20,"./view.js":21}],18:[function(require,module,exports){
-var miruken = require('../miruken.js');
-
-new function () { // closure
-
-    /**
-     * Package providing Model-View-Controller abstractions.<br/>
-     * Requires the {{#crossLinkModule "miruken"}}{{/crossLinkModule}},
-     * {{#crossLinkModule "callback"}}{{/crossLinkModule}},
-     * {{#crossLinkModule "context"}}{{/crossLinkModule}} and 
-     * {{#crossLinkModule "validate"}}{{/crossLinkModule}} modules.
-     * @module miruken
-     * @submodule mvc
-     * @namespace miruken.mvc
-     */
-    miruken.package(this, {
-        name:    "mvc",
-        imports: "miruken",
-        exports: "MasterDetail,MasterDetailAware"
-    });
-
-    eval(this.imports);
-    
     /**
      * Protocol for managing master-detail relationships.
      * @class MasterDetail
@@ -10135,7 +9436,98 @@ new function () { // closure
     
 }
 
-},{"../miruken.js":14}],19:[function(require,module,exports){
+},{"../callback.js":4,"../context.js":5,"../miruken.js":12,"../validate":20}],16:[function(require,module,exports){
+var miruken = require('../miruken.js'),
+    Promise = require('bluebird');
+
+new function () {
+
+	var mvc = new base2.Package(this, {
+		name:   'mvc',
+		version: miruken.version,
+		parent:  miruken,
+		imports: 'miruken',
+		exports: 'GreenSockFadeProvider'
+	});
+
+	eval(this.imports);
+
+	var outTime = .4,
+		inTime  = .8;
+
+	var BaseAnimationProvider = Base.extend(FadeProviding, {
+		handle: function(container, content, context){
+				
+			var _current = container.children(),
+			    _removed = false;
+
+				if (context) {
+                	context.onEnding(function(_context){
+                		if(context === _context && !_removed){
+                			_removed = true;
+                			this.animateOut(content, container).then(function(){
+                				content.remove();
+                			});
+                		}
+            		}.bind(this));
+				}
+
+			    if(!container.__miruken_animate_out){
+			    	if(_current.length){
+			    		return this.animateOut(_current, container).then(function(){
+				    		return this.animateIn(content, container);
+				    	}.bind(this));	
+			    	} else {
+			    		return this.animateIn(content, container);
+			    	}
+			    } else {
+			    	return container.__miruken_animate_out(content, container).then(function(){
+			    		_removed = true;
+			    		return this.animateIn(content, container).then(function(){
+			    			return container.__miruken_animate_out = function(){
+			    				this.animateOut(content, container);
+			    			}	
+			    		}.bind(this));
+			    	}.bind(this));
+			    }
+		}
+	});
+
+	var GreenSockFadeProvider = BaseAnimationProvider.extend(FadeProviding, {
+		animateIn: function(content, container){
+			return new Promise(function(resolve){
+	    		content.css('opacity', 0);
+    			container.html(content);
+			    TweenMax.to(content, inTime, {
+                	opacity: 1,
+                	onComplete: resolve
+            	})
+	    	});
+		},
+		animateOut: function(content, container){
+			return new Promise(function(resolve){
+	    		TweenMax.to(content, outTime, {
+	    			opacity: 0,
+	    			onComplete: resolve
+	    		});
+	    	});
+		}
+	});
+
+	eval(this.exports);
+
+}
+
+},{"../miruken.js":12,"bluebird":23}],17:[function(require,module,exports){
+module.exports = require('./model.js');
+require('./view.js');
+require('./controller.js');
+require('./components.js');
+require('./bootstrap.js');
+require('./greenSock.js');
+
+
+},{"./bootstrap.js":13,"./components.js":14,"./controller.js":15,"./greenSock.js":16,"./model.js":18,"./view.js":19}],18:[function(require,module,exports){
 var miruken = require('../miruken.js');
               require('../callback.js');
               require('../context.js');
@@ -10153,8 +9545,10 @@ new function () { // closure
      * @submodule mvc
      * @namespace miruken.mvc
      */
-    miruken.package(this, {
+    var mvc = new base2.Package(this, {
         name:    "mvc",
+        version: miruken.version,
+        parent:  miruken,
         imports: "miruken,miruken.validate",
         exports: "Model"
     });
@@ -10181,28 +9575,25 @@ new function () { // closure
      * </pre>
      * @class Model
      * @constructor
-     * @param  {Object}  [data]   -  json structured data
-     * @param  {Object}  options  -  mapping options
+     * @param {Object} [data]  -  json structured data 
      * @extends Base
      */
     var Model = Base.extend(
         $inferProperties, $validateThat, {
-        constructor: function (data, options) {
-            this.fromData(data, options);
+        constructor: function (data) {
+            this.fromData(data);
         },
         /**
          * Maps json structured data into the model.
          * @method fromData
-         * @param   {Object}  data     -  json structured data
-         * @param   {Object}  options  -  mapping options
-         */
-        fromData: function (data, options) {
+         * @param   {Object}  data  -  json structured data
+         */            
+        fromData: function (data) {
             if ($isNothing(data)) {
-                return this;
+                return;
             }
             var meta        = this.$meta,
-                descriptors = meta && meta.getDescriptor(),
-                dynamic     = options && options.dynamic;
+                descriptors = meta && meta.getDescriptor();
             if (descriptors) {
                 for (var key in descriptors) {
                     var descriptor = descriptors[key];
@@ -10213,30 +9604,19 @@ new function () { // closure
             }
             for (var key in data) {
                 var descriptor = descriptors && descriptors[key],
-                    mapper     = descriptor  && descriptor.map;
-                if ((mapper && descriptor.root) || (descriptor && descriptor.ignore)) {
-                    continue;  // ignore or already rooted
+                    mapper     = descriptor && descriptor.map;
+                if (mapper && descriptor.root) {
+                    continue;  // already rooted
                 }
                 var value = data[key];
-                if (value === undefined) {
-                    continue;
-                }
                 if (key in this) {
-                    this[key] = Model.map(value, mapper, options);
+                    this[key] = mapper ? Model.map(value, mapper, descriptor) : value;
                 } else {
-                    var lkey  = key.toLowerCase(),
-                        found = false;
+                    var lkey = key.toLowerCase();
                     for (var k in this) {
                         if (k.toLowerCase() === lkey) {
-                            descriptor = descriptors && descriptors[k];
-                            mapper     = descriptor  && descriptor.map;                            
-                            this[k]    = Model.map(value, mapper, options);
-                            found      = true;
-                            break;
+                            this[k] = mapper ? Model.map(value, mapper, descriptor) : value;
                         }
-                    }
-                    if (!found && dynamic) {
-                        this[key] = value;
                     }
                 }
             }
@@ -10254,59 +9634,34 @@ new function () { // closure
             var meta        = this.$meta,
                 descriptors = meta && meta.getDescriptor();
             if (descriptors) {
-                var all = !$isObject(spec);
+                var all = $isNothing(spec);
                 for (var key in descriptors) {
                     if (all || (key in spec)) {
-                        var keyValue   = this[key];
-                        if (keyValue === undefined) {
-                            continue;
-                        }
-                        var descriptor = descriptors[key],
+                        var keyValue   = this[key],
+                            descriptor = descriptors[key],
                             keySpec    = all ? spec : spec[key];
-                        if (!(all || keySpec) || descriptor.ignore) {
+                        if (!(all || keySpec)) {
                             continue;
                         }
                         if (descriptor.root) {
-                            if (keyValue) {
-                                if ($isFunction(keyValue.toData)) {
-                                    keyValue.toData(keySpec, data);
-                                } else if ($isFunction(keyValue.toJSON)) {
-                                    var json = keyValue.toJSON();
-                                    for(var k in json) data[k] = json[k];
-                                }
+                            if (keyValue && $isFunction(keyValue.toData)) {
+                                keyValue.toData(keySpec, data);
                             }
-                        } else if ($isArray(keyValue)) {
-                            data[key] = Array2.map(keyValue, function (elem) {
-                                if (elem) {
-                                    if ($isFunction(elem.toData)) {
-                                        return elem.toData(keySpec);
-                                    } else if ($isFunction(elem.toJSON)) {
-                                        return elem.toJSON();
-                                    }
-                                    return elem;
-                                }
-                            });
+                        } else if (keyValue && $isFunction(keyValue.toData)) {
+                            data[key] = keyValue.toData(keySpec);
                         } else {
-                            if (keyValue) {
-                                if ($isFunction(keyValue.toData)) {
-                                    keyValue = keyValue.toData(keySpec);
-                                } else if ($isFunction(keyValue.toJSON)) {
-                                    keyValue = keyValue.toJSON();
-                                }
-                            }
-                            data[key] = keyValue
+                            data[key] = keyValue;
                         }
                     }
                 }
             }            
             return data;
         },
-        toJSON: function() { return this.toData(); },
         /**
          * Merges specified data into another model.
          * @method mergeInto
          * @param   {miruken.mvc.Model}  model  -  model to receive data
-         * @returns {boolean} true if model could be merged into. 
+         * @returns {boolean}  true if model could be merged into. 
          */            
         mergeInto: function (model) {
             if (!(model instanceof this.constructor)) {
@@ -10338,166 +9693,24 @@ new function () { // closure
          * @returns {Object} json structured data.
          */                                
         map: function (value, mapper, options) {
-            return $isArray(value)
-                ? Array2.map(value, function (elem) {
-                    return Model.map(elem, mapper, options)
-                })
-            : (mapper ? mapper(value, options) : value);
+            if (value) {
+                return $isArray(value)
+                     ? Array2.map(value, function (elem) {
+                         return Model.map(elem, mapper, options)
+                       })
+                     : mapper(value, options);
+            }
         },
         coerce: function () {
             return this.new.apply(this, arguments);
         }
     });
-    
+
     eval(this.exports);
     
 }
 
-},{"../callback.js":6,"../context.js":7,"../miruken.js":14,"../validate":22}],20:[function(require,module,exports){
-(function (global){
-var miruken = require('../miruken.js');
-var Promise = require('bluebird');
-
-new function () { // closure
-
-    /**
-     * Package providing Model-View-Controller abstractions.<br/>
-     * Requires the {{#crossLinkModule "miruken"}}{{/crossLinkModule}},
-     * @module miruken
-     * @submodule mvc
-     * @namespace miruken.mvc
-     */
-    miruken.package(this, {
-        name:    "mvc",
-        imports: "miruken",
-        exports: "Route,Routing,Router"
-    });
-
-    eval(this.imports);
-
-    /**
-     * Route definition.
-     * @class Route
-     * @extends Base
-     */    
-    var Route = Base.extend({
-        name:    undefined,
-        pattern: undefined,
-        params:  undefined
-    });
-    
-    /**
-     * Protocol for routing.
-     * @class Routing
-     * @extends Protocol
-     */
-    var Routing = StrictProtocol.extend({
-        /**
-         * Handles to the specified `route`.
-         * @method handleRoute
-         * @param    {miruken.mvc.Route}  route  -  route
-         * @returns  {Promise} promise.
-         */
-        handleRoute: function (route) {},
-        /**
-         * Follows the route matching `navigation`.
-         * @method followNavigation
-         * @param    {miruken.mvc.Navigation}  navigation  -  navigation
-         */
-        followNavigation: function (navigation) {}
-    });
-
-    var controllerKeyRegExp = /(.*)controller$/i;
-    
-    /**
-     * Base class for routing.
-     * @class Router
-     * @constructor
-     * @extends Base
-     * @uses miruken.mvc.Routing
-     */    
-    var Router = Base.extend(Routing, $inheritStatic, {
-        handleRoute: function (route) {
-            var name   = route.name,
-                params = route.params;
-            try {
-                if (params == null) {
-                    throw new Error(format(
-                        "Missing params route '%1'", name));
-                }
-                var controller = params.controller;
-                if (controller == null) {
-                    throw new Error(format(
-                        "Missing controller for route '%1'", name));
-                }
-                this.validateRoute(route);
-            } catch (ex) {
-                return _rejectRoute.call(this, route, ex);
-            }
-            var composer = global.$composer,
-                navigate = Navigate(composer),
-                action   = params.action || (params.action = "index"),
-                execute  = function (ctrl) {
-                    var property = this.selectActionMethod(ctrl, action),
-                        method   = property && ctrl[property];
-                    return $isFunction(method) ? method.call(ctrl, params)
-                         : Promise.reject(new Error(format(
-                             "%1 missing action '%2' for route '%3'",
-                             ctrl, action, name)));
-                }.bind(this),
-                controllerKey = this.expandControllerKey(controller);
-
-            var self = this;
-            return navigate.next(controllerKey, execute)
-                .catch(function (err) {
-                    if ((err instanceof ControllerNotFound) &&
-                        (controllerKey !== controller)) {
-                        return navigate.next(controller, execute)
-                        	.catch(function (err) {
-                                return _rejectRoute.call(self, route, err);
-                            });
-                    }
-                    return _rejectRoute.call(self, route, err);
-                });
-        },
-        validateRoute: function (route) {},
-        rejectRoute: function (route, error) {
-            return Promise.reject(error);
-        },
-        extractControllerKey: function (controller) {
-            var matches = controller.match && controller.match(controllerKeyRegExp);
-            return matches ? matches[1].toLowerCase() : controller;
-        },
-        expandControllerKey: function (controller) {
-            return controller.match && !controller.match(controllerKeyRegExp)
-                 ? controller + "Controller"
-                 : controller;
-        },
-        selectActionMethod: function (controller, action) {
-            if (action in controller) { return action; }
-            action = action.toLowerCase();
-            for (var property in controller) {
-                if (action === property.toLowerCase()) {
-                    return property;
-                }
-            }
-        }
-    });
-
-    function _rejectRoute(route, error) {
-        try {
-            return Promise.resolve(this.rejectRoute(route, error));
-        } catch (err) {
-            return Promise.reject(err);
-        }
-    }
-    
-    eval(this.exports);
-    
-}
-
-}).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"../miruken.js":14,"bluebird":25}],21:[function(require,module,exports){
+},{"../callback.js":4,"../context.js":5,"../miruken.js":12,"../validate":20}],19:[function(require,module,exports){
 var miruken = require('../miruken.js');
               require('../callback.js');
               require('../context.js');
@@ -10516,54 +9729,16 @@ new function () { // closure
      * @submodule mvc
      * @namespace miruken.mvc
      */
-    miruken.package(this, {
+    var mvc = new base2.Package(this, {
         name:    "mvc",
-        imports: "miruken,miruken.callback",
-        exports: "ViewLayer,ViewRegion,ViewRegionAware,PresentationPolicy," +
-                 "RegionPolicy,ModalPolicy,ModalProviding,ButtonClicked"
+        version: miruken.version,
+        parent:  miruken,
+        imports: "miruken,miruken.callback,miruken.context",
+        exports: "PresentationPolicy,ViewRegion,PartialRegion,ButtonClicked"
     });
 
     eval(this.imports);
 
-    /**
-     * Protocol for representing a layer in a 
-     * See {{#crossLink "miruken.mvc.ViewRegion"}}{{/crossLink}.
-     * @class ViewLayer
-     * @extends Protocol
-     */
-    var ViewLayer = Protocol.extend(Disposing, {
-        /**
-         * Gets the index of the layer in the region.
-         * @property {int} index
-         */
-        get index() {}
-    });
-    
-    /**
-     * Protocol for rendering a view on the screen.
-     * @class ViewRegion
-     * @extends StrictProtocol
-     */
-    var ViewRegion = StrictProtocol.extend({
-        /**
-         * Renders `view` in the region.
-         * @method show
-         * @param    {Any}      view  -  view
-         * @returns  {Promise}  promise for the layer.
-         */
-        show: function (view) {}
-    });
-
-    /**
-     * Protocol for communicating
-     * {{#crossLink "miruken.callback.CallbackHandler"}}{{/crossLink}} lifecycle.
-     * @class ViewRegionAware
-     * @extends Protocol
-     */
-    var ViewRegionAware = Protocol.extend({
-        viewRegionCreated: function (viewRegion) {}
-    });
-    
     /**
      * Base class for presentation policies.
      * @class PresentationPolicy
@@ -10572,78 +9747,71 @@ new function () { // closure
     var PresentationPolicy = Model.extend();
 
     /**
-     * Policy for describing modal presentation.
-     * @class ModalPolicy
-     * @extends miruken.mvc.PresentationPolicy
+     * Protocol for rendering a view on the screen.
+     * @class ViewRegion
+     * @extends StrictProtocol
      */
-    var ModalPolicy = PresentationPolicy.extend({
-        $properties: {
-            title:      "",
-            style:      null,
-            chrome:     true,
-            header:     false,
-            footer:     false,
-            forceClose: false,
-            buttons:    null
-        }
+    var ViewRegion = StrictProtocol.extend({
+        /**
+         * Renders a controller or view in the region.
+         * @method present
+         * @param   {Object}  presentation  -  presentation options
+         * @returns {Promise} promise reflecting render.
+         */                                        
+        present: function (presentation) {}
     });
 
     /**
-     * Policy for controlling regions.
-     * @class RegionPolicy
-     * @extends miruken.mvc.PresentationPolicy
+     * Protocol for rendering a view in an area on the screen.
+     * @class PartialRegion
+     * @extends {miruken.mvc.ViewRegion}
      */
-    var RegionPolicy = PresentationPolicy.extend({
-        $properties: {
-            tag:   undefined,
-            push:  false,
-            modal: undefined
-        }
+    var PartialRegion = ViewRegion.extend({
+        /**
+         * Gets the region's context.
+         * @method getContext
+         * @returns {miruken.context.Context} region context.
+         */
+        getContext: function () {},
+        /**
+         * Gets the region's controller.
+         * @method getController
+         * @return {miruken.mvc.Controller} region controller.
+         */            
+        getController: function () {},
+        /**
+         * Gets the region's controller context.
+         * @method getControllerContext
+         * @return {miruken.context.Context} region controller context.
+         */            
+        getControllerContext: function () {}
     });
-    
+
     /**
      * Represents the clicking of a button.
      * @class ButtonClicked
      * @constructor
-     * @param  {Any}     button       -  clicked button
-     * @param  {number}  buttonIndex  -  index of clicked button 
+     * @param  {Object}  button  -  clicked button 
      * @extends Base
      */
-    var ButtonClicked = Base.extend({
+    var ButtonClicked = Base.extend(
+        $inferProperties, {
         constructor: function (button, buttonIndex) {
             this.extend({
                 /**
                  * Gets the clicked button.
-                 * @property {Any} button
-                 */
-                get button() { return button; },
+                 * @property {Object} button
+                 */                                
+                getButton: function () { return button; },
                 /**
                  * Gets the clicked button index.
                  * @property {number} button index
-                 */
-                get buttonIndex() { return buttonIndex; }
+                 */                                
+                getButtonIndex: function () { return buttonIndex; }
             });
         }
     });
-
-    /**
-     * Protocol for interacting with a modal provider.
-     * @class ModalProviding
-     * @extends StrictProtocol
-     */
-    var ModalProviding = StrictProtocol.extend({
-        /**
-         * Presents the content in a modal dialog.
-         * @method showModal
-         * @param   {Element}                  container  -  element modal bound to
-         * @param   {Element}                  content    -  modal content element
-         * @param   {miruken.mvc.ModalPolicy}  policy     -  modal policy options
-         * @param   {miruken.context.Context}  context    -  modal context
-         * @returns {Promise} promise representing the modal result.
-         */
-        showModal: function (container, content, policy, context) {}
-    });
-    
+        
     CallbackHandler.implement({
         /**
          * Applies the presentation policy to the handler.
@@ -10657,50 +9825,19 @@ new function () { // closure
                     return policy.mergeInto(presenting);
                 }]
             }) : this;
-        },
-        /**
-         * Targets the tagged region with `tag`.
-         * @method region
-         * @param  {Any}  tag  -  region tag
-         * @returns {miruken.callback.CallbackHandler} tag handler.
-         * @for miruken.callback.CallbackHandler
-         */                                                                
-        region: function (tag) {
-            return this.presenting(new RegionPolicy({tag: tag}));
-        },
-        /**
-         * Presents the next view in a new layer. 
-         * @method pushLayer
-         * @returns {miruken.callback.CallbackHandler} push handler.
-         * @for miruken.callback.CallbackHandler
-         */                                                                
-        pushLayer: function () {
-            return this.presenting(new RegionPolicy({push: true}));
-        },
-        /**
-         * Configures modal presentation options.
-         * @method modal
-         * @param {Object}  options  -  modal options
-         * @returns {miruken.callback.CallbackHandler} modal handler.
-         * @for miruken.callback.CallbackHandler
-         */
-        modal: function (modal) {
-            return this.presenting(new RegionPolicy({
-                modal: new ModalPolicy(modal)
-            }));
-        }        
+        }
     });
     
     eval(this.exports);
     
 }
 
-},{"../callback.js":6,"../context.js":7,"../miruken.js":14,"../validate":22,"./model.js":19}],22:[function(require,module,exports){
+},{"../callback.js":4,"../context.js":5,"../miruken.js":12,"../validate":20,"./model.js":18}],20:[function(require,module,exports){
 module.exports = require('./validate.js');
 require('./validatejs.js');
 
 
-},{"./validate.js":23,"./validatejs.js":24}],23:[function(require,module,exports){
+},{"./validate.js":21,"./validatejs.js":22}],21:[function(require,module,exports){
 var miruken = require('../miruken.js'),
     Promise = require('bluebird');
               require('../callback.js');
@@ -10716,8 +9853,10 @@ new function () { // closure
      * @namespace miruken.validate
      * @class $
      */    
-    miruken.package(this, {
+    var validate = new base2.Package(this, {
         name:    "validate",
+        version: miruken.version,
+        parent:  miruken,
         imports: "miruken,miruken.callback",
         exports: "Validating,Validator,Validation,ValidationResult,ValidationCallbackHandler,$validate,$validateThat"
     });
@@ -10776,7 +9915,8 @@ new function () { // closure
      * @param   {miruken.validate.ValidationResult} results  -  results to validate to
      * @extends Base
      */
-    var Validation = Base.extend({
+    var Validation = Base.extend(
+        $inferProperties, {
         constructor: function (object, async, scope, results) {
             var _asyncResults;
             async   = !!async;
@@ -10785,37 +9925,24 @@ new function () { // closure
                 /**
                  * true if asynchronous, false if synchronous.
                  * @property {boolean} async
-                 * @readOnly
                  */                
-                get isAsync() { return async; },
+                isAsync: function () { return async; },
                 /**
                  * Gets the target object to validate.
                  * @property {Object} object
-                 * @readOnly
                  */                                
-                get object() { return object; },
+                getObject: function () { return object; },
                 /**
                  * Gets the scope of validation.
                  * @property {Any} scope
-                 * @readOnly
                  */                                                
-                get scope() { return scope; },
+                getScope: function () { return scope; },
                 /**
                  * Gets the validation results.
                  * @property {miruken.validate.ValidationResult} results
-                 * @readOnly
                  */                                                                
-                get results() { return results; },
-                /**
-                 * Gets the async validation results.
-                 * @property {miruken.validate.ValidationResult} results
-                 * @readOnly
-                 */                                                                                
-                get asyncResults() { return _asyncResults; },
-                /**
-                 * Adds an async validation result. (internal)
-                 * @method addAsyncResult
-                 */                        
+                getResults: function () { return results; },
+                getAsyncResults: function () { return _asyncResults; },
                 addAsyncResult: function (result) {
                     if ($isPromise(result)) {
                         (_asyncResults || (_asyncResults = [])).push(result);
@@ -10825,7 +9952,7 @@ new function () { // closure
         }
     });
     
-    var IGNORE = ['valid', 'errors', 'addKey', 'addError'];
+    var IGNORE = ['isValid', 'valid', 'getErrors', 'errors', 'addKey', 'addError'];
 
     /**
      * Captures structured validation errors.
@@ -10833,16 +9960,16 @@ new function () { // closure
      * @constructor
      * @extends Base
      */    
-    var ValidationResult = Base.extend({
+    var ValidationResult = Base.extend(
+        $inferProperties, {
         constructor: function () {
             var _errors, _summary;
             this.extend({
                 /**
                  * true if object is valid, false otherwisw.
                  * @property {boolean} valid
-                 * @readOnly
                  */                
-                get valid() {
+                isValid: function () {
                     if (_errors || _summary) {
                         return false;
                     }
@@ -10862,9 +9989,8 @@ new function () { // closure
                 /**
                  * Gets aggregated validation errors.
                  * @property {Object} errors
-                 * @readOnly
                  */                                
-                get errors() {
+                getErrors: function () {
                     if (_summary) {
                         return _summary;
                     }
@@ -10881,7 +10007,7 @@ new function () { // closure
                             continue;
                         }
                         var result = this[key],
-                            errors = (result instanceof ValidationResult) && result.errors;
+                            errors = (result instanceof ValidationResult) && result.getErrors();
                         if (errors) {
                             _summary = _summary || {};
                             for (name in errors) {
@@ -10969,9 +10095,6 @@ new function () { // closure
      */        
     var ValidationCallbackHandler = CallbackHandler.extend(Validator, {
         validate: function (object, scope, results) {
-            if ($isNothing(object)) {
-                throw new TypeError("Missing object to validate.");
-            }
             var validation = new Validation(object, false, scope, results);
             $composer.handle(validation, true);
             results = validation.results;
@@ -10980,9 +10103,6 @@ new function () { // closure
             return results;
         },
         validateAsync: function (object, scope, results) {
-            if ($isNothing(object)) {
-                throw new TypeError("Missing object to validate.");
-            }            
             var validation = new Validation(object, true, scope, results),
                 composer   = $composer;
             return composer.deferAll(validation).then(function () {
@@ -11015,38 +10135,41 @@ new function () { // closure
      * @extends miruken.MetaMacro
      */    
     var $validateThat = MetaMacro.extend({
-        execute: function _(step, metadata, target, definition) {
-            var validateThat = this.extractProperty('$validateThat', target, definition);
-            if (!validateThat) {
-                return;
+        apply: function _(step, metadata, target, definition) {
+            var validateThat = definition['$validateThat'];
+            if ($isFunction(validateThat)) {
+                validateThat = validateThat();
             }
-            var validators = {};
-            for (var name in validateThat) {
-                var validator = validateThat[name];
-                if ($isArray(validator)) {
-                    var dependencies = validator.slice(0);
-                    validator = dependencies.pop();
-                    if (!$isFunction(validator)) {
-                        continue;
+            if (validateThat) {
+                var validators = {};
+                for (var name in validateThat) {
+                    var validator = validateThat[name];
+                    if ($isArray(validator)) {
+                        var dependencies = validator.slice(0);
+                        validator = dependencies.pop();
+                        if (!$isFunction(validator)) {
+                            continue;
+                        }
+                        if (dependencies.length > 0) {
+                            validator = (function (nm, val, deps) {
+                                return function (validation, composer) {
+                                    var d = Array2.concat(deps, Array2.map(arguments, $use));
+                                    return Invoking(composer).invoke(val, d, this);
+                                }
+                            })(name, validator, dependencies);
+                        }
                     }
-                    if (dependencies.length > 0) {
-                        validator = (function (nm, val, deps) {
-                            return function (validation, composer) {
-                                var d = Array2.concat(deps, Array2.map(arguments, $use));
-                                return Invoking(composer).invoke(val, d, this);
-                            }
-                        })(name, validator, dependencies);
+                    if ($isFunction(validator)) {
+                        name = 'validateThat' + name.charAt(0).toUpperCase() + name.slice(1);
+                        validators[name] = validator;
+                    }
+                    if (step == MetaStep.Extend) {
+                        target.extend(validators);
+                    } else {
+                        metadata.getClass().implement(validators);
                     }
                 }
-                if ($isFunction(validator)) {
-                    name = 'validateThat' + name.charAt(0).toUpperCase() + name.slice(1);
-                    validators[name] = validator;
-                }
-                if (step == MetaStep.Extend) {
-                    target.extend(validators);
-                } else {
-                    metadata.getClass().implement(validators);
-                }
+                delete target['$validateThat'];
             }
         },
         /**
@@ -11104,14 +10227,14 @@ new function () { // closure
     });
 
     if (typeof module !== 'undefined' && module.exports) {
-        module.exports = exports = this.package;
+        module.exports = exports = validate;
     }
 
     eval(this.exports);
 
 }
 
-},{"../callback.js":6,"../miruken.js":14,"bluebird":25}],24:[function(require,module,exports){
+},{"../callback.js":4,"../miruken.js":12,"bluebird":23}],22:[function(require,module,exports){
 var miruken    = require('../miruken.js'),
     validate   = require('./validate.js'),
     validatejs = require("validate.js"),
@@ -11126,19 +10249,19 @@ new function () { // closure
      * @namespace miruken.validate
      * @class $
      */    
-    miruken.package(this, {
+    var validate = new base2.Package(this, {
         name:    "validate",
+        version: miruken.version,
+        parent:  miruken,
         imports: "miruken,miruken.callback,miruken.validate",
-        exports: "ValidationRegistry,ValidateJsCallbackHandler," +
-                 "$required,$notEmpty,$nested"
+        exports: "ValidationRegistry,ValidateJsCallbackHandler,$required,$nested"
     });
 
     eval(this.imports);
 
     validatejs.Promise = Promise;
 
-    var DETAILED    = { format: "detailed",
-                        cleanAttributes: false },
+    var DETAILED    = { format: "detailed" },
         VALIDATABLE = { validate: undefined },
         /**
          * Shortcut to indicate required property.
@@ -11146,21 +10269,14 @@ new function () { // closure
          * @readOnly
          * @for miruken.validate.$ 
          */
-        $required = Object.freeze({ presence: true }), 
-        /**
-         * Shortcut to indicate not empty property.
-         * @property {Object} $notEmpty
-         * @readOnly
-         * @for miruken.validate.$ 
-         */
-        $notEmpty = Object.freeze({ presence: { allowEmpty: false } }),       
+        $required   = Object.freeze({ presence: true }),
         /**
          * Shortcut to indicate nested validation.
          * @property {Object} $nested
          * @readOnly
          * @for miruken.validate.$ 
          */
-        $nested = Object.freeze({ nested: true });
+        $nested     = Object.freeze({ nested: true });
 
     validatejs.validators.nested = Undefined;
 
@@ -11180,7 +10296,7 @@ new function () { // closure
      * @extends miruken.MetaMacro
      */    
     var $registerValidators = MetaMacro.extend({
-        execute: function (step, metadata, target, definition) {
+        apply: function (step, metadata, target, definition) {
             if (step === MetaStep.Subclass || step === MetaStep.Implement) {
                 for (var name in definition) {
                     var validator = definition[name];
@@ -11269,14 +10385,14 @@ new function () { // closure
     var ValidateJsCallbackHandler = CallbackHandler.extend({
         $validate: [
             null,  function (validation, composer) {
-                var target      = validation.object,
+                var target      = validation.getObject(),
                     nested      = {},
                     constraints = _buildConstraints(target, nested);
                 if (constraints) {
-                    var scope     = validation.scope,
-                        results   = validation.results,
+                    var scope     = validation.getScope(),
+                        results   = validation.getResults(),
                         validator = Validator(composer); 
-                    if (validation.isAsync) {
+                    if (validation.isAsync()) {
                         return validatejs.async(target, constraints, DETAILED)
                             .then(function (valid) {
                                  return _validateNestedAsync(validator, scope, results, nested);
@@ -11371,12 +10487,12 @@ new function () { // closure
 
 }
 
-},{"../callback.js":6,"../miruken.js":14,"./validate.js":23,"bluebird":25,"validate.js":27}],25:[function(require,module,exports){
+},{"../callback.js":4,"../miruken.js":12,"./validate.js":21,"bluebird":23,"validate.js":25}],23:[function(require,module,exports){
 (function (process,global){
 /* @preserve
  * The MIT License (MIT)
  * 
- * Copyright (c) 2013-2015 Petka Antonov
+ * Copyright (c) 2014 Petka Antonov
  * 
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -11398,7 +10514,7 @@ new function () { // closure
  * 
  */
 /**
- * bluebird build version 2.11.0
+ * bluebird build version 2.9.34
  * Features enabled: core, race, call_get, generators, map, nodeify, promisify, props, reduce, settle, some, cancel, using, filter, any, each, timers
 */
 !function(e){if("object"==typeof exports&&"undefined"!=typeof module)module.exports=e();else if("function"==typeof define&&define.amd)define([],e);else{var f;"undefined"!=typeof window?f=window:"undefined"!=typeof global?f=global:"undefined"!=typeof self&&(f=self),f.Promise=e()}}(function(){var define,module,exports;return (function e(t,n,r){function s(o,u){if(!n[o]){if(!t[o]){var a=typeof _dereq_=="function"&&_dereq_;if(!u&&a)return a(o,!0);if(i)return i(o,!0);var f=new Error("Cannot find module '"+o+"'");throw f.code="MODULE_NOT_FOUND",f}var l=n[o]={exports:{}};t[o][0].call(l.exports,function(e){var n=t[o][1][e];return s(n?n:e)},l,l.exports,e,t,n,r)}return n[o].exports}var i=typeof _dereq_=="function"&&_dereq_;for(var o=0;o<r.length;o++)s(r[o]);return s})({1:[function(_dereq_,module,exports){
@@ -12455,8 +11571,6 @@ var debugging = false || (util.isNode &&
                     (!!process.env["BLUEBIRD_DEBUG"] ||
                      process.env["NODE_ENV"] === "development"));
 
-if (util.isNode && process.env["BLUEBIRD_DEBUG"] == 0) debugging = false;
-
 if (debugging) {
     async.disableTrampolineIfNecessary();
 }
@@ -12647,8 +11761,6 @@ Promise.prototype.thenReturn = function (value) {
             undefined,
             undefined
        );
-    } else if (value instanceof Promise) {
-        value._ignoreRejections();
     }
     return this._then(returner, undefined, undefined, value, undefined);
 };
@@ -13589,7 +12701,6 @@ if (util.isNode) {
 }
 util.notEnumerableProp(Promise, "_getDomain", getDomain);
 
-var UNDEFINED_BINDING = {};
 var async = _dereq_("./async.js");
 var errors = _dereq_("./errors.js");
 var TypeError = Promise.TypeError = errors.TypeError;
@@ -13616,7 +12727,6 @@ var PromiseResolver = _dereq_("./promise_resolver.js");
 var nodebackForPromise = PromiseResolver._nodebackForPromise;
 var errorObj = util.errorObj;
 var tryCatch = util.tryCatch;
-
 function Promise(resolver) {
     if (typeof resolver !== "function") {
         throw new TypeError("the promise constructor requires a resolver function\u000a\u000a    See http://goo.gl/EC22Yn\u000a");
@@ -13719,8 +12829,6 @@ Promise.prototype.all = function () {
 Promise.prototype.error = function (fn) {
     return this.caught(util.originatesFromRejection, fn);
 };
-
-Promise.getNewLibraryCopy = module.exports;
 
 Promise.is = function (val) {
     return val instanceof Promise;
@@ -13877,9 +12985,7 @@ Promise.prototype._receiverAt = function (index) {
         ? this._receiver0
         : this[
             index * 5 - 5 + 4];
-    if (ret === UNDEFINED_BINDING) {
-        return undefined;
-    } else if (ret === undefined && this._isBound()) {
+    if (ret === undefined && this._isBound()) {
         return this._boundValue();
     }
     return ret;
@@ -13924,7 +13030,6 @@ Promise.prototype._migrateCallbacks = function (follower, index) {
     var promise = follower._promiseAt(index);
     var receiver = follower._receiverAt(index);
     if (promise instanceof Promise) promise._setIsMigrated();
-    if (receiver === undefined) receiver = UNDEFINED_BINDING;
     this._addCallbacks(fulfill, reject, progress, promise, receiver, null);
 };
 
@@ -14264,7 +13369,6 @@ Promise.prototype._settlePromises = function () {
     }
 };
 
-
 util.notEnumerableProp(Promise,
                        "_makeSelfResolutionError",
                        makeSelfResolutionError);
@@ -14276,7 +13380,6 @@ _dereq_("./finally.js")(Promise, NEXT_FILTER, tryConvertToPromise);
 _dereq_("./direct_resolve.js")(Promise);
 _dereq_("./synchronous_inspection.js")(Promise);
 _dereq_("./join.js")(Promise, PromiseArray, tryConvertToPromise, INTERNAL);
-Promise.version = "2.11.0";
 Promise.Promise = Promise;
 _dereq_('./map.js')(Promise, PromiseArray, apiRejection, tryConvertToPromise, INTERNAL);
 _dereq_('./cancel.js')(Promise);
@@ -14837,16 +13940,11 @@ function promisifyAll(obj, suffix, filter, promisifier) {
         var key = methods[i];
         var fn = methods[i+1];
         var promisifiedKey = key + suffix;
-        if (promisifier === makeNodePromisified) {
-            obj[promisifiedKey] =
-                makeNodePromisified(key, THIS, key, fn, suffix);
-        } else {
-            var promisified = promisifier(fn, function() {
-                return makeNodePromisified(key, THIS, key, fn, suffix);
-            });
-            util.notEnumerableProp(promisified, "__isPromisified__", true);
-            obj[promisifiedKey] = promisified;
-        }
+        obj[promisifiedKey] = promisifier === makeNodePromisified
+                ? makeNodePromisified(key, THIS, key, fn, suffix)
+                : promisifier(fn, function() {
+                    return makeNodePromisified(key, THIS, key, fn, suffix);
+                });
     }
     util.toFastProperties(obj);
     return obj;
@@ -15667,16 +14765,10 @@ var TimeoutError = Promise.TimeoutError;
 
 var afterTimeout = function (promise, message) {
     if (!promise.isPending()) return;
-    
-    var err;
-    if(!util.isPrimitive(message) && (message instanceof Error)) {
-        err = message;
-    } else {
-        if (typeof message !== "string") {
-            message = "operation timed out";
-        }
-        err = new TimeoutError(message);
+    if (typeof message !== "string") {
+        message = "operation timed out";
     }
+    var err = new TimeoutError(message);
     util.markAsOriginatingFromRejection(err);
     promise._attachExtraTrace(err);
     promise._cancel(err);
@@ -15863,20 +14955,10 @@ module.exports = function (Promise, apiRejection, tryConvertToPromise,
                         "you must pass at least 2 arguments to Promise.using");
         var fn = arguments[len - 1];
         if (typeof fn !== "function") return apiRejection("fn must be a function\u000a\u000a    See http://goo.gl/916lJJ\u000a");
-
-        var input;
-        var spreadArgs = true;
-        if (len === 2 && Array.isArray(arguments[0])) {
-            input = arguments[0];
-            len = input.length;
-            spreadArgs = false;
-        } else {
-            input = arguments;
-            len--;
-        }
+        len--;
         var resources = new Array(len);
         for (var i = 0; i < len; ++i) {
-            var resource = input[i];
+            var resource = arguments[i];
             if (Disposer.isDisposer(resource)) {
                 var disposer = resource;
                 resource = resource.promise();
@@ -15900,8 +14982,7 @@ module.exports = function (Promise, apiRejection, tryConvertToPromise,
                 promise._pushContext();
                 var ret;
                 try {
-                    ret = spreadArgs
-                        ? fn.apply(undefined, vals) : fn.call(undefined,  vals);
+                    ret = fn.apply(undefined, vals);
                 } finally {
                     promise._popContext();
                 }
@@ -16266,105 +15347,16 @@ module.exports = ret;
 },{"./es5.js":14}]},{},[4])(4)
 });                    ;if (typeof window !== 'undefined' && window !== null) {                               window.P = window.Promise;                                                     } else if (typeof self !== 'undefined' && self !== null) {                             self.P = self.Promise;                                                         }
 }).call(this,require('_process'),typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"_process":26}],26:[function(require,module,exports){
+},{"_process":24}],24:[function(require,module,exports){
 // shim for using process in browser
+
 var process = module.exports = {};
-
-// cached from whatever global is present so that test runners that stub it
-// don't break things.  But we need to wrap it in a try catch in case it is
-// wrapped in strict mode code which doesn't define any globals.  It's inside a
-// function because try/catches deoptimize in certain engines.
-
-var cachedSetTimeout;
-var cachedClearTimeout;
-
-function defaultSetTimout() {
-    throw new Error('setTimeout has not been defined');
-}
-function defaultClearTimeout () {
-    throw new Error('clearTimeout has not been defined');
-}
-(function () {
-    try {
-        if (typeof setTimeout === 'function') {
-            cachedSetTimeout = setTimeout;
-        } else {
-            cachedSetTimeout = defaultSetTimout;
-        }
-    } catch (e) {
-        cachedSetTimeout = defaultSetTimout;
-    }
-    try {
-        if (typeof clearTimeout === 'function') {
-            cachedClearTimeout = clearTimeout;
-        } else {
-            cachedClearTimeout = defaultClearTimeout;
-        }
-    } catch (e) {
-        cachedClearTimeout = defaultClearTimeout;
-    }
-} ())
-function runTimeout(fun) {
-    if (cachedSetTimeout === setTimeout) {
-        //normal enviroments in sane situations
-        return setTimeout(fun, 0);
-    }
-    // if setTimeout wasn't available but was latter defined
-    if ((cachedSetTimeout === defaultSetTimout || !cachedSetTimeout) && setTimeout) {
-        cachedSetTimeout = setTimeout;
-        return setTimeout(fun, 0);
-    }
-    try {
-        // when when somebody has screwed with setTimeout but no I.E. maddness
-        return cachedSetTimeout(fun, 0);
-    } catch(e){
-        try {
-            // When we are in I.E. but the script has been evaled so I.E. doesn't trust the global object when called normally
-            return cachedSetTimeout.call(null, fun, 0);
-        } catch(e){
-            // same as above but when it's a version of I.E. that must have the global object for 'this', hopfully our context correct otherwise it will throw a global error
-            return cachedSetTimeout.call(this, fun, 0);
-        }
-    }
-
-
-}
-function runClearTimeout(marker) {
-    if (cachedClearTimeout === clearTimeout) {
-        //normal enviroments in sane situations
-        return clearTimeout(marker);
-    }
-    // if clearTimeout wasn't available but was latter defined
-    if ((cachedClearTimeout === defaultClearTimeout || !cachedClearTimeout) && clearTimeout) {
-        cachedClearTimeout = clearTimeout;
-        return clearTimeout(marker);
-    }
-    try {
-        // when when somebody has screwed with setTimeout but no I.E. maddness
-        return cachedClearTimeout(marker);
-    } catch (e){
-        try {
-            // When we are in I.E. but the script has been evaled so I.E. doesn't  trust the global object when called normally
-            return cachedClearTimeout.call(null, marker);
-        } catch (e){
-            // same as above but when it's a version of I.E. that must have the global object for 'this', hopfully our context correct otherwise it will throw a global error.
-            // Some versions of I.E. have different rules for clearTimeout vs setTimeout
-            return cachedClearTimeout.call(this, marker);
-        }
-    }
-
-
-
-}
 var queue = [];
 var draining = false;
 var currentQueue;
 var queueIndex = -1;
 
 function cleanUpNextTick() {
-    if (!draining || !currentQueue) {
-        return;
-    }
     draining = false;
     if (currentQueue.length) {
         queue = currentQueue.concat(queue);
@@ -16380,7 +15372,7 @@ function drainQueue() {
     if (draining) {
         return;
     }
-    var timeout = runTimeout(cleanUpNextTick);
+    var timeout = setTimeout(cleanUpNextTick);
     draining = true;
 
     var len = queue.length;
@@ -16388,16 +15380,14 @@ function drainQueue() {
         currentQueue = queue;
         queue = [];
         while (++queueIndex < len) {
-            if (currentQueue) {
-                currentQueue[queueIndex].run();
-            }
+            currentQueue[queueIndex].run();
         }
         queueIndex = -1;
         len = queue.length;
     }
     currentQueue = null;
     draining = false;
-    runClearTimeout(timeout);
+    clearTimeout(timeout);
 }
 
 process.nextTick = function (fun) {
@@ -16409,7 +15399,7 @@ process.nextTick = function (fun) {
     }
     queue.push(new Item(fun, args));
     if (queue.length === 1 && !draining) {
-        runTimeout(drainQueue);
+        setTimeout(drainQueue, 0);
     }
 };
 
@@ -16442,21 +15432,20 @@ process.binding = function (name) {
     throw new Error('process.binding is not supported');
 };
 
+// TODO(shtylman)
 process.cwd = function () { return '/' };
 process.chdir = function (dir) {
     throw new Error('process.chdir is not supported');
 };
 process.umask = function() { return 0; };
 
-},{}],27:[function(require,module,exports){
-/*!
- * validate.js 0.10.0
- *
- * (c) 2013-2016 Nicklas Ansman, 2013 Wrapp
- * Validate.js may be freely distributed under the MIT license.
- * For all details and documentation:
- * http://validatejs.org/
- */
+},{}],25:[function(require,module,exports){
+//     Validate.js 0.7.0
+
+//     (c) 2013-2015 Nicklas Ansman, 2013 Wrapp
+//     Validate.js may be freely distributed under the MIT license.
+//     For all details and documentation:
+//     http://validatejs.org/
 
 (function(exports, module, define) {
   "use strict";
@@ -16492,7 +15481,7 @@ process.umask = function() { return 0; };
   // Copies over attributes from one or more sources to a single destination.
   // Very much similar to underscore's extend.
   // The first argument is the target object and the remaining arguments will be
-  // used as sources.
+  // used as targets.
   v.extend = function(obj) {
     [].slice.call(arguments, 1).forEach(function(source) {
       for (var attr in source) {
@@ -16507,7 +15496,7 @@ process.umask = function() { return 0; };
     // The toString function will allow it to be coerced into a string
     version: {
       major: 0,
-      minor: 10,
+      minor: 7,
       patch: 0,
       metadata: null,
       toString: function() {
@@ -16527,6 +15516,12 @@ process.umask = function() { return 0; };
     // Since jQuery promises aren't A+ compatible they won't work.
     Promise: typeof Promise !== "undefined" ? Promise : /* istanbul ignore next */ null,
 
+    // If moment is used in node, browserify etc please set this attribute
+    // like this: `validate.moment = require("moment");
+    moment: typeof moment !== "undefined" ? moment : /* istanbul ignore next */ null,
+
+    XDate: typeof XDate !== "undefined" ? XDate : /* istanbul ignore next */ null,
+
     EMPTY_STRING_REGEXP: /^\s*$/,
 
     // Runs the validators specified by the constraints object.
@@ -16542,7 +15537,7 @@ process.umask = function() { return 0; };
         , validatorOptions
         , error;
 
-      if (v.isDomElement(attributes) || v.isJqueryElement(attributes)) {
+      if (v.isDomElement(attributes)) {
         attributes = v.collectFormValues(attributes);
       }
 
@@ -16578,15 +15573,9 @@ process.umask = function() { return 0; };
             attribute: attr,
             value: value,
             validator: validatorName,
-            globalOptions: options,
-            attributes: attributes,
             options: validatorOptions,
-            error: validator.call(validator,
-                value,
-                validatorOptions,
-                attr,
-                attributes,
-                options)
+            error: validator.call(validator, value, validatorOptions, attr,
+                                  attributes)
           });
         }
       }
@@ -16632,23 +15621,13 @@ process.umask = function() { return 0; };
     // It can be called even if no validations returned a promise.
     async: function(attributes, constraints, options) {
       options = v.extend({}, v.async.options, options);
-
-      var WrapErrors = options.wrapErrors || function(errors) {
-        return errors;
-      };
-
-      // Removes unknown attributes
-      if (options.cleanAttributes !== false) {
-        attributes = v.cleanAttributes(attributes, constraints);
-      }
-
       var results = v.runValidations(attributes, constraints, options);
 
       return new v.Promise(function(resolve, reject) {
         v.waitForResults(results).then(function() {
           var errors = v.processValidationResults(results, options);
           if (errors) {
-            reject(new WrapErrors(errors, options, attributes, constraints));
+            reject(errors);
           } else {
             resolve(attributes);
           }
@@ -16681,14 +15660,17 @@ process.umask = function() { return 0; };
 
         return memo.then(function() {
           return result.error.then(
-            function(error) {
-              result.error = error || null;
+            function() {
+              result.error = null;
             },
             function(error) {
-              if (error instanceof Error) {
+              // If for some reason the validator promise was rejected but no
+              // error was specified.
+              if (!error) {
+                v.warn("Validator promise was rejected but didn't return an error");
+              } else if (error instanceof Error) {
                 throw error;
               }
-              v.error("Rejecting promises with the result is deprecated. Please use the resolve callback instead.");
               result.error = error;
             }
           );
@@ -16729,19 +15711,9 @@ process.umask = function() { return 0; };
       return v.isNumber(value) && value % 1 === 0;
     },
 
-    // Checks if the value is a boolean
-    isBoolean: function(value) {
-      return typeof value === 'boolean';
-    },
-
     // Uses the `Object` function to check if the given argument is an object.
     isObject: function(obj) {
       return obj === Object(obj);
-    },
-
-    // Simply checks if the object is an instance of a date
-    isDate: function(obj) {
-      return obj instanceof Date;
     },
 
     // Returns false if the object is `null` of `undefined`
@@ -16755,16 +15727,12 @@ process.umask = function() { return 0; };
       return !!p && v.isFunction(p.then);
     },
 
-    isJqueryElement: function(o) {
-      return o && v.isString(o.jquery);
-    },
-
     isDomElement: function(o) {
       if (!o) {
         return false;
       }
 
-      if (!o.querySelectorAll || !o.querySelector) {
+      if (!v.isFunction(o.querySelectorAll) || !v.isFunction(o.querySelector)) {
         return false;
       }
 
@@ -16808,11 +15776,6 @@ process.umask = function() { return 0; };
         return value.length === 0;
       }
 
-      // Dates have no attributes but aren't empty
-      if (v.isDate(value)) {
-        return false;
-      }
-
       // If we find at least one property we consider it non empty
       if (v.isObject(value)) {
         for (attr in value) {
@@ -16832,9 +15795,6 @@ process.umask = function() { return 0; };
     // prefix it with % like this `Foo: %%{foo}` and it will be returned
     // as `"Foo: %{foo}"`
     format: v.extend(function(str, vals) {
-      if (!v.isString(str)) {
-        return str;
-      }
       return str.replace(v.format.FORMAT_REGEXP, function(m0, m1, m2) {
         if (m1 === '%') {
           return "%{" + m2 + "}";
@@ -16897,12 +15857,6 @@ process.umask = function() { return 0; };
       return {}.toString.call(value) === '[object Array]';
     },
 
-    // Checks if the object is a hash, which is equivalent to an object that
-    // is neither an array nor a function.
-    isHash: function(value) {
-      return v.isObject(value) && !v.isArray(value) && !v.isFunction(value);
-    },
-
     contains: function(obj, value) {
       if (!v.isDefined(obj)) {
         return false;
@@ -16913,17 +15867,8 @@ process.umask = function() { return 0; };
       return value in obj;
     },
 
-    unique: function(array) {
-      if (!v.isArray(array)) {
-        return array;
-      }
-      return array.filter(function(el, index, array) {
-        return array.indexOf(el) == index;
-      });
-    },
-
-    forEachKeyInKeypath: function(object, keypath, callback) {
-      if (!v.isString(keypath)) {
+    getDeepObjectValue: function(obj, keypath) {
+      if (!v.isObject(obj) || !v.isString(keypath)) {
         return undefined;
       }
 
@@ -16937,9 +15882,11 @@ process.umask = function() { return 0; };
             if (escape) {
               escape = false;
               key += '.';
-            } else {
-              object = callback(object, key, false);
+            } else if (key in obj) {
+              obj = obj[key];
               key = "";
+            } else {
+              return undefined;
             }
             break;
 
@@ -16959,19 +15906,11 @@ process.umask = function() { return 0; };
         }
       }
 
-      return callback(object, key, true);
-    },
-
-    getDeepObjectValue: function(obj, keypath) {
-      if (!v.isObject(obj)) {
+      if (v.isDefined(obj) && key in obj) {
+        return obj[key];
+      } else {
         return undefined;
       }
-
-      return v.forEachKeyInKeypath(obj, keypath, function(obj, key) {
-        if (v.isObject(obj)) {
-          return obj[key];
-        }
-      });
     },
 
     // This returns an object with all the values of the form.
@@ -16987,17 +15926,13 @@ process.umask = function() { return 0; };
         , inputs
         , value;
 
-      if (v.isJqueryElement(form)) {
-        form = form[0];
-      }
-
       if (!form) {
         return values;
       }
 
       options = options || {};
 
-      inputs = form.querySelectorAll("input[name], textarea[name]");
+      inputs = form.querySelectorAll("input[name]");
       for (i = 0; i < inputs.length; ++i) {
         input = inputs.item(i);
 
@@ -17007,7 +15942,7 @@ process.umask = function() { return 0; };
 
         value = v.sanitizeFormValue(input.value, options);
         if (input.type === "number") {
-          value = value ? +value : null;
+          value = +value;
         } else if (input.type === "checkbox") {
           if (input.attributes.value) {
             if (!input.checked) {
@@ -17088,17 +16023,7 @@ process.umask = function() { return 0; };
 
       var ret = [];
       errors.forEach(function(errorInfo) {
-        var error = v.result(errorInfo.error,
-            errorInfo.value,
-            errorInfo.attribute,
-            errorInfo.options,
-            errorInfo.attributes,
-            errorInfo.globalOptions);
-
-        if (!v.isString(error)) {
-          ret.push(errorInfo);
-          return;
-        }
+        var error = errorInfo.error;
 
         if (error[0] === '^') {
           error = error.slice(1);
@@ -17137,56 +16062,6 @@ process.umask = function() { return 0; };
       return errors.map(function(error) { return error.error; });
     },
 
-    cleanAttributes: function(attributes, whitelist) {
-      function whitelistCreator(obj, key, last) {
-        if (v.isObject(obj[key])) {
-          return obj[key];
-        }
-        return (obj[key] = last ? true : {});
-      }
-
-      function buildObjectWhitelist(whitelist) {
-        var ow = {}
-          , lastObject
-          , attr;
-        for (attr in whitelist) {
-          if (!whitelist[attr]) {
-            continue;
-          }
-          v.forEachKeyInKeypath(ow, attr, whitelistCreator);
-        }
-        return ow;
-      }
-
-      function cleanRecursive(attributes, whitelist) {
-        if (!v.isObject(attributes)) {
-          return attributes;
-        }
-
-        var ret = v.extend({}, attributes)
-          , w
-          , attribute;
-
-        for (attribute in attributes) {
-          w = whitelist[attribute];
-
-          if (v.isObject(w)) {
-            ret[attribute] = cleanRecursive(ret[attribute], w);
-          } else if (!w) {
-            delete ret[attribute];
-          }
-        }
-        return ret;
-      }
-
-      if (!v.isObject(whitelist) || !v.isObject(attributes)) {
-        return {};
-      }
-
-      whitelist = buildObjectWhitelist(whitelist);
-      return cleanRecursive(attributes, whitelist);
-    },
-
     exposeModule: function(validate, root, exports, module, define) {
       if (exports) {
         if (module && module.exports) {
@@ -17203,13 +16078,13 @@ process.umask = function() { return 0; };
 
     warn: function(msg) {
       if (typeof console !== "undefined" && console.warn) {
-        console.warn("[validate.js] " + msg);
+        console.warn(msg);
       }
     },
 
     error: function(msg) {
       if (typeof console !== "undefined" && console.error) {
-        console.error("[validate.js] " + msg);
+        console.error(msg);
       }
     }
   });
@@ -17286,22 +16161,8 @@ process.umask = function() { return 0; };
             greaterThanOrEqualTo: function(v, c) { return v >= c; },
             equalTo:              function(v, c) { return v === c; },
             lessThan:             function(v, c) { return v < c; },
-            lessThanOrEqualTo:    function(v, c) { return v <= c; },
-            divisibleBy:          function(v, c) { return v % c === 0; }
+            lessThanOrEqualTo:    function(v, c) { return v <= c; }
           };
-
-      // Strict will check that it is a valid looking number
-      if (v.isString(value) && options.strict) {
-        var pattern = "^(0|[1-9]\\d*)";
-        if (!options.onlyInteger) {
-          pattern += "(\\.\\d+)?";
-        }
-        pattern += "$";
-
-        if (!(new RegExp(pattern).test(value))) {
-          return options.message || options.notValid || this.notValid || "must be a valid number";
-        }
-      }
 
       // Coerce the value to a number unless we're being strict.
       if (options.noStrings !== true && v.isString(value)) {
@@ -17310,13 +16171,13 @@ process.umask = function() { return 0; };
 
       // If it's not a number we shouldn't continue since it will compare it.
       if (!v.isNumber(value)) {
-        return options.message || options.notValid || this.notValid || "is not a number";
+        return options.message || this.notValid || "is not a number";
       }
 
       // Same logic as above, sort of. Don't bother with comparisons if this
       // doesn't pass.
       if (options.onlyInteger && !v.isInteger(value)) {
-        return options.message || options.notInteger || this.notInteger  || "must be an integer";
+        return options.message || this.notInteger  || "must be an integer";
       }
 
       for (name in checks) {
@@ -17325,8 +16186,8 @@ process.umask = function() { return 0; };
           // This picks the default message if specified
           // For example the greaterThan check uses the message from
           // this.notGreaterThan so we capitalize the name and prepend "not"
-          var key = "not" + v.capitalize(name);
-          var msg = options[key] || this[key] || "must be %{type} %{count}";
+          var msg = this["not" + v.capitalize(name)] ||
+            "must be %{type} %{count}";
 
           errors.push(v.format(msg, {
             count: count,
@@ -17336,10 +16197,10 @@ process.umask = function() { return 0; };
       }
 
       if (options.odd && value % 2 !== 1) {
-        errors.push(options.notOdd || this.notOdd || "must be odd");
+        errors.push(this.notOdd || "must be odd");
       }
       if (options.even && value % 2 !== 0) {
-        errors.push(options.notEven || this.notEven || "must be even");
+        errors.push(this.notEven || "must be even");
       }
 
       if (errors.length) {
@@ -17347,10 +16208,6 @@ process.umask = function() { return 0; };
       }
     },
     datetime: v.extend(function(value, options) {
-      if (!v.isFunction(this.parse) || !v.isFunction(this.format)) {
-        throw new Error("Both the parse and format functions needs to be set to use the datetime/date validator");
-      }
-
       // Empty values are fine
       if (v.isEmpty(value)) {
         return;
@@ -17368,43 +16225,57 @@ process.umask = function() { return 0; };
       // 86400000 is the number of seconds in a day, this is used to remove
       // the time from the date
       if (isNaN(value) || options.dateOnly && value % 86400000 !== 0) {
-        err = options.notValid ||
-          options.message ||
-          this.notValid ||
-          "must be a valid date";
-        return v.format(err, {value: arguments[0]});
+        return options.message || this.notValid || "must be a valid date";
       }
 
       if (!isNaN(earliest) && value < earliest) {
-        err = options.tooEarly ||
-          options.message ||
-          this.tooEarly ||
-          "must be no earlier than %{date}";
-        err = v.format(err, {
-          value: this.format(value, options),
-          date: this.format(earliest, options)
-        });
+        err = this.tooEarly || "must be no earlier than %{date}";
+        err = v.format(err, {date: this.format(earliest, options)});
         errors.push(err);
       }
 
       if (!isNaN(latest) && value > latest) {
-        err = options.tooLate ||
-          options.message ||
-          this.tooLate ||
-          "must be no later than %{date}";
-        err = v.format(err, {
-          date: this.format(latest, options),
-          value: this.format(value, options)
-        });
+        err = this.tooLate || "must be no later than %{date}";
+        err = v.format(err, {date: this.format(latest, options)});
         errors.push(err);
       }
 
       if (errors.length) {
-        return v.unique(errors);
+        return options.message || errors;
       }
     }, {
-      parse: null,
-      format: null
+      // This is the function that will be used to convert input to the number
+      // of millis since the epoch.
+      // It should return NaN if it's not a valid date.
+      parse: function(value, options) {
+        if (v.isFunction(v.XDate)) {
+          return new v.XDate(value, true).getTime();
+        }
+
+        if (v.isDefined(v.moment)) {
+          return +v.moment.utc(value);
+        }
+
+        throw new Error("Neither XDate or moment.js was found");
+      },
+      // Formats the given timestamp. Uses ISO8601 to format them.
+      // If options.dateOnly is true then only the year, month and day will be
+      // output.
+      format: function(date, options) {
+        var format = options.dateFormat;
+
+        if (v.isFunction(v.XDate)) {
+          format = format || (options.dateOnly ? "yyyy-MM-dd" : "yyyy-MM-dd HH:mm:ss");
+          return new XDate(date, true).toString(format);
+        }
+
+        if (v.isDefined(v.moment)) {
+          format = format || (options.dateOnly ? "YYYY-MM-DD" : "YYYY-MM-DD HH:mm:ss");
+          return v.moment.utc(date).format(format);
+        }
+
+        throw new Error("Neither XDate or moment.js was found");
+      }
     }),
     date: function(value, options) {
       options = v.extend({}, options, {dateOnly: true});
@@ -17510,75 +16381,6 @@ process.umask = function() { return 0; };
       if (!comparator(value, otherValue, options, attribute, attributes)) {
         return v.format(message, {attribute: v.prettify(options.attribute)});
       }
-    },
-
-    // A URL validator that is used to validate URLs with the ability to
-    // restrict schemes and some domains.
-    url: function(value, options) {
-      if (v.isEmpty(value)) {
-        return;
-      }
-
-      options = v.extend({}, this.options, options);
-
-      var message = options.message || this.message || "is not a valid url"
-        , schemes = options.schemes || this.schemes || ['http', 'https']
-        , allowLocal = options.allowLocal || this.allowLocal || false;
-
-      if (!v.isString(value)) {
-        return message;
-      }
-
-      // https://gist.github.com/dperini/729294
-      var regex =
-        "^" +
-          // schemes
-          "(?:(?:" + schemes.join("|") + "):\\/\\/)" +
-          // credentials
-          "(?:\\S+(?::\\S*)?@)?";
-
-      regex += "(?:";
-
-      var tld = "(?:\\.(?:[a-z\\u00a1-\\uffff]{2,}))";
-
-      // This ia a special case for the localhost hostname
-      if (allowLocal) {
-        tld += "?";
-      } else {
-        // private & local addresses
-        regex +=
-          "(?!10(?:\\.\\d{1,3}){3})" +
-          "(?!127(?:\\.\\d{1,3}){3})" +
-          "(?!169\\.254(?:\\.\\d{1,3}){2})" +
-          "(?!192\\.168(?:\\.\\d{1,3}){2})" +
-          "(?!172" +
-          "\\.(?:1[6-9]|2\\d|3[0-1])" +
-          "(?:\\.\\d{1,3})" +
-          "{2})";
-      }
-
-      var hostname =
-          "(?:(?:[a-z\\u00a1-\\uffff0-9]+-?)*[a-z\\u00a1-\\uffff0-9]+)" +
-          "(?:\\.(?:[a-z\\u00a1-\\uffff0-9]+-?)*[a-z\\u00a1-\\uffff0-9]+)*" +
-          tld + ")";
-
-      // reserved addresses
-      regex +=
-          "(?:[1-9]\\d?|1\\d\\d|2[01]\\d|22[0-3])" +
-          "(?:\\.(?:1?\\d{1,2}|2[0-4]\\d|25[0-5])){2}" +
-          "(?:\\.(?:[1-9]\\d?|1\\d\\d|2[0-4]\\d|25[0-4]))" +
-        "|" +
-          hostname +
-          // port number
-          "(?::\\d{2,5})?" +
-          // path
-          "(?:\\/[^\\s]*)?" +
-        "$";
-
-      var PATTERN = new RegExp(regex, 'i');
-      if (!PATTERN.exec(value)) {
-        return message;
-      }
     }
   };
 
@@ -17588,4 +16390,4 @@ process.umask = function() { return 0; };
         typeof module !== 'undefined' ? /* istanbul ignore next */ module : null,
         typeof define !== 'undefined' ? /* istanbul ignore next */ define : null);
 
-},{}]},{},[10,17,1]);
+},{}]},{},[8,17,1]);
