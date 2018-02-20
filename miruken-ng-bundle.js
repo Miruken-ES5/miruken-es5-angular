@@ -598,7 +598,7 @@ new function () { // closure
                     
                     function renderTemplate(template) {
                         var modal = policy.modal,
-                            push  = modal || _layers.length === 0 || policy.push;
+                            push  = modal || policy.push || _layers.length === 0;
                         
                         if (push) {
                             var Layer = Base.extend(ViewLayer, DisposingMixin, {
@@ -609,13 +609,15 @@ new function () { // closure
                                     var content = this._expandTemplate(template, controller);
                                     if (modal) {
                                         var provider     = modal.style || ModalProviding,
-                                            modalContext = this._layerScope.context,
+                                            modalScope   = this._layerScope,
+                                            modalContext = modalScope.context,
                                             modalResult  = provider(composer)
                                                 .showModal(container, content, modal, modalContext);
+                                        modalContext.onEnding(this.dispose.bind(this));
                                         return Promise.resolve($decorate(this, {
                                             modalResult: modalResult
                                         }));
-                                    }                                    
+                                    }                             
                                     return $timeout(function () {
                                         if (this._content) {
                                             this._content.replaceWith(content);
@@ -754,7 +756,7 @@ new function () { // closure
             this.extend({
                 handleRoute: function (route) {
                     $state.go(route.name, route.params);
-                    return this.base(route)
+                    return this.base(route);
                 },
                 followNavigation: function (navigation) {
                     var states = $state.get();
@@ -7221,7 +7223,7 @@ new function () { // closure
      */
     base2.package(this, {
         name:    "miruken",
-        version: "2.0.35",
+        version: "2.0.38",
         exports: "Enum,Flags,Variance,Protocol,StrictProtocol,Delegate,Miruken,MetaStep,MetaMacro," +
                  "Initializing,Disposing,DisposingMixin,Resolving,Invoking,Parenting,Starting,Startup," +
                  "Facet,Interceptor,InterceptorSelector,ProxyBuilder,Modifier,ArrayManager,IndexedList," +
@@ -9730,6 +9732,7 @@ new function () { // closure
      * @extends Base
      */        
     var Navigation = Base.extend({
+        push:       undefined,
         controller: undefined,
         action:     undefined,
         args:       undefined
@@ -9744,19 +9747,21 @@ new function () { // closure
         /**
          * Transitions to next `action` on `controller`.
          * @method next
-         * @param   {Any}       controller  -  controller key
-         * @param   {Function}  action      -  controller action
+         * @param   {Any}       controller     -  controller key
+         * @param   {Function}  action         -  controller action
+         * @param   {Function}  [configureIO]  -  configures io
          * @returns {Promise} promise when transition complete.
          */        
-        next: function (controller, action) {},
+        next: function (controller, action, configureIO) {},
         /**
          * Transitions to next `action` on `controller` in a new context.
          * @method to
-         * @param   {Any}       controller  -  controller key
-         * @param   {Function}  action      -  controller action
+         * @param   {Any}       controller    -  controller key
+         * @param   {Function}  action        -  controller action
+         * @param   {Function}  [confgureIO]  -  configures io
          * @returns {Promise} promise when transition complete.
          */        
-        push: function (controller, action) {}        
+        push: function (controller, action, configureIO) {}        
     });
 
     /**
@@ -9768,8 +9773,9 @@ new function () { // closure
      * @uses miruken.validate.$validateThat
      * @uses miruken.validate.Validating
      */
-    var Controller = CallbackHandler.extend(DisposingMixin, $contextual,
-                                            $validateThat, Validating, {
+    var Controller = CallbackHandler.extend(
+        DisposingMixin, Validating, $contextual, $validateThat, {
+            
         get ifValid() {
             return this.io.$validAsync(this);
         },
@@ -9777,15 +9783,15 @@ new function () { // closure
         show: function (handler, view) {
             return handler instanceof CallbackHandler
                  ? miruken.mvc.ViewRegion(handler).show(view)
-                 : miruken.mvc.ViewRegion(io).show(handler);
+                 : miruken.mvc.ViewRegion(this.io).show(handler);
         },
         next: function (controller, handler) {
             var io = handler || this.io || this.context;            
-            return createTrampoline(controller, io, 'next');
+            return createTrampoline(controller, io, "next");
         },
         push: function (controller, handler) {
             var io = handler || this.io || this.context;
-            return createTrampoline(controller, io, 'next');
+            return createTrampoline(controller, io, "push");
         },                                                
         validate: function (target, scope) {
             return _validate.call(this, target, "validate", scope);
@@ -9802,36 +9808,18 @@ new function () { // closure
             var controller = this;
             return {
                 get next() {
-                    return createTrampoline(controller, source, 'next');
+                    return createTrampoline(controller, source, "next");
                 },
                 get push() {
-                    return createTrampoline(controller, source, 'push');
+                    return createTrampoline(controller, source, "push");
                 }
             };
         },
-        bindIO: function (io, controller) {
-            io = _assemble(io || controller.context, globalPrepare, controller);
-            if (io == null) {
-                delete controller.io;
-                return;
-            }
-            if (globalExecute.length === 0) {
-                controller.io = io;
-                return;
-            }
-            var executor   = controller.io = io.decorate({
-                toDelegate: function () {
-                    var ex = _assemble(this, globalExecute, controller);
-                    delete executor.toDelegate;
-                    return ex.toDelegate();
-                }
-            });
-        },        
         get prepare() { return globalPrepare; },
         get execute() { return globalExecute; }        
     });
 
-    var IGNORE_TRAMPOLINE = [ "base", "constructor", "initialize", "dispose" ];
+    var TRAMPOLINE_IGNORE = [ "base", "constructor", "initialize", "dispose" ];
 
     function createTrampoline(controller, source, action) {
         if (!(controller.prototype instanceof Controller)) {
@@ -9843,9 +9831,9 @@ new function () { // closure
         action = navigate[action];
         do {
             Array2.forEach(Object.getOwnPropertyNames(obj), function (key) {
-                if (IGNORE_TRAMPOLINE.indexOf(key) >= 0 || (key in trampoline))  {
-                    return;
-                }
+                if (TRAMPOLINE_IGNORE.indexOf(key) >= 0 ||
+                    key.lastIndexOf("_", 0) === 0 ||
+                    (key in trampoline)) { return; }
                 var descriptor = Object.getOwnPropertyDescriptor(obj, key);
                 if (descriptor == null || !$isFunction(descriptor.value)) {
                     return;
@@ -9853,15 +9841,14 @@ new function () { // closure
                 trampoline[key] = function () {
                     var args = Array.prototype.slice.call(arguments);
                     return action.call(navigate, controller, function (ctrl) {
-                        var io = (action == "next" ? source
-                                  : ctrl.context.$self().next(source))
-                               .$$provide([Navigation, new Navigation({
-                                   controller: ctrl,
-                                   action:     key,
-                                   args:       args
-                               })]);
-                        Controller.bindIO(io, ctrl);
                         return ctrl[key].apply(ctrl, args);
+                    }, function (io, ctrl) {
+                        return io.$$provide([Navigation, new Navigation({
+                            push:       action === "push",
+                            controller: ctrl,
+                            action:     key,
+                            args:       args
+                        })]);
                     });
                 };
             });
@@ -9897,13 +9884,13 @@ new function () { // closure
      * @uses miruken.mvc.Navigate
      */    
     var NavigateCallbackHandler = CompositeCallbackHandler.extend(Navigate, {
-        next: function (controller, action) {
-            return this.to(controller, action, false);
+        next: function (controller, action, configureIO) {
+            return this.to(controller, action, false, configureIO);
         },
-        push: function (controller, action) {
-            return this.to(controller, action, true);            
+        push: function (controller, action, configureIO) {
+            return this.to(controller, action, true, configureIO);
         },        
-        to: function (controller, action, push) {
+        to: function (controller, action, push, configureIO) {
             if (action == null) {
                 return Promise.reject(new Error("Missing action"));
             };
@@ -9925,17 +9912,41 @@ new function () { // closure
                                    (initiator.context == ctx)) {
                             initiator.context = null;
                         }
-                        Controller.bindIO(composer, ctrl);                        
+                        var io = ctx === context ? composer
+                               : ctx.$self().next(composer);
+                        if ($isFunction(configureIO)) {
+                            io = configureIO(io, ctrl) || io;
+                        }
+                        _bindIO(io, ctrl);                        
                         return action(ctrl);
                     } catch (exception) {
                         return Errors(ctrl.io).handleException(exception);
                     } finally {
-                        Controller.bindIO(null, ctrl);
+                        _bindIO(null, ctrl);
                     }
                 });
         }
     });
-    
+
+    function _bindIO(io, controller) {
+        io = _assemble(io || controller.context, globalPrepare, controller);
+        if (io == null) {
+            delete controller.io;
+            return;
+        }
+        if (globalExecute.length === 0) {
+            controller.io = io;
+            return;
+        }
+        var executor   = controller.io = io.decorate({
+            toDelegate: function () {
+                var ex = _assemble(this, globalExecute, controller);
+                delete executor.toDelegate;
+                return ex.toDelegate();
+            }
+        });
+    }
+
     function _assemble(handler, builders, context) {
         return handler && builders
              ?  builders.reduce(function (result, builder) {
@@ -10394,15 +10405,7 @@ new function () { // closure
          * @method followNavigation
          * @param    {miruken.mvc.Navigation}  navigation  -  navigation
          */
-        followNavigation: function (navigation) {},
-        /**
-         * Handles to the rejected `route`.
-         * @method rejectRoute
-         * @param    {miruken.mvc.Route}  route  -  route
-         * @param    {Error}              error  -  error
-         * @returns  {Promise} promise.
-         */
-        rejectRoute: function (route, error) {}
+        followNavigation: function (navigation) {}
     });
 
     var controllerKeyRegExp = /(.*)controller$/i;
@@ -10418,14 +10421,19 @@ new function () { // closure
         handleRoute: function (route) {
             var name   = route.name,
                 params = route.params;
-            if (params == null) {
-                return Promise.reject(new Error(format(
-                    "Missing params route '%1'", name)));
-            }
-            var controller = params.controller;
-            if (controller == null) {
-                return Promise.reject(new Error(format(
-                    "Missing controller for route '%1'", name)));
+            try {
+                if (params == null) {
+                    throw new Error(format(
+                        "Missing params route '%1'", name));
+                }
+                var controller = params.controller;
+                if (controller == null) {
+                    throw new Error(format(
+                        "Missing controller for route '%1'", name));
+                }
+                this.validateRoute(route);
+            } catch (ex) {
+                return _rejectRoute.call(this, route, ex);
             }
             var composer = global.$composer,
                 navigate = Navigate(composer),
@@ -10433,7 +10441,6 @@ new function () { // closure
                 execute  = function (ctrl) {
                     var property = this.selectActionMethod(ctrl, action),
                         method   = property && ctrl[property];
-                    Controller.bindIO(composer, ctrl);
                     return $isFunction(method) ? method.call(ctrl, params)
                          : Promise.reject(new Error(format(
                              "%1 missing action '%2' for route '%3'",
@@ -10441,18 +10448,20 @@ new function () { // closure
                 }.bind(this),
                 controllerKey = this.expandControllerKey(controller);
 
+            var self = this;
             return navigate.next(controllerKey, execute)
                 .catch(function (err) {
                     if ((err instanceof ControllerNotFound) &&
                         (controllerKey !== controller)) {
                         return navigate.next(controller, execute)
                         	.catch(function (err) {
-                                return Routing(composer).rejectRoute(route, err);                                
+                                return _rejectRoute.call(self, route, err);
                             });
                     }
-                    return Routing(composer).rejectRoute(route, err);
+                    return _rejectRoute.call(self, route, err);
                 });
         },
+        validateRoute: function (route) {},
         rejectRoute: function (route, error) {
             return Promise.reject(error);
         },
@@ -10475,6 +10484,14 @@ new function () { // closure
             }
         }
     });
+
+    function _rejectRoute(route, error) {
+        try {
+            return Promise.resolve(this.rejectRoute(route, error));
+        } catch (err) {
+            return Promise.reject(err);
+        }
+    }
     
     eval(this.exports);
     
@@ -11113,7 +11130,8 @@ new function () { // closure
     miruken.package(this, {
         name:    "validate",
         imports: "miruken,miruken.callback,miruken.validate",
-        exports: "ValidationRegistry,ValidateJsCallbackHandler,$required,$nested"
+        exports: "ValidationRegistry,ValidateJsCallbackHandler," +
+                 "$required,$notEmpty,$nested"
     });
 
     eval(this.imports);
@@ -11129,7 +11147,14 @@ new function () { // closure
          * @readOnly
          * @for miruken.validate.$ 
          */
-        $required = Object.freeze({ presence: true }),
+        $required = Object.freeze({ presence: true }), 
+        /**
+         * Shortcut to indicate not empty property.
+         * @property {Object} $notEmpty
+         * @readOnly
+         * @for miruken.validate.$ 
+         */
+        $notEmpty = Object.freeze({ presence: { allowEmpty: false } }),       
         /**
          * Shortcut to indicate nested validation.
          * @property {Object} $nested
