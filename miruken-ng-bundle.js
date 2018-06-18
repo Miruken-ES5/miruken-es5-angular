@@ -693,7 +693,7 @@ new function () { // closure
                         region  = this.createRegion(tag, element, $templates, $compile, $q, $timeout);
                     context.addHandlers(region);
                     if (owner && $isFunction(owner.viewRegionCreated)) {
-                        owner.viewRegionCreated(region);
+                        owner.viewRegionCreated(tag, context);
                     }                    
                 }
             }); 
@@ -7223,7 +7223,7 @@ new function () { // closure
      */
     base2.package(this, {
         name:    "miruken",
-        version: "2.0.38",
+        version: "2.0.39",
         exports: "Enum,Flags,Variance,Protocol,StrictProtocol,Delegate,Miruken,MetaStep,MetaMacro," +
                  "Initializing,Disposing,DisposingMixin,Resolving,Invoking,Parenting,Starting,Startup," +
                  "Facet,Interceptor,InterceptorSelector,ProxyBuilder,Modifier,ArrayManager,IndexedList," +
