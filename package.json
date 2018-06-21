@@ -1,6 +1,6 @@
 {
   "name": "miruken-es5-angular",
-  "version": "2.0.39",
+  "version": "2.0.40",
   "description": "A Miruken and Angular integration",
   "author": "Miruken",
   "contributors": [
@@ -26,6 +26,7 @@
     "angular-ui-router": "~0.2.15"
   }
 }
+
 
 
 

@@ -681,7 +681,7 @@ new function () { // closure
      */
     var RegionDirective = Directive.extend({
         restrict:   "A",
-        scope:      false,        
+        scope:      true,
         priority:   -1000,
         $inject:    ["$templateRequest", "$compile", "$q", "$timeout"],
         constructor: function ($templates, $compile, $q, $timeout) {
@@ -880,6 +880,7 @@ new function () { // closure
      * @extends miruken.ng.RegionDirective     
      */    
     var RouteRegionDirective = RegionDirective.extend({
+        scope: false,
         createRegion: function (tag, element, $templates, $compile, $q, $timeout)
         {
             return new RouteRegion(tag, element, $templates, $compile, $q, $timeout);
@@ -7223,7 +7224,6 @@ new function () { // closure
      */
     base2.package(this, {
         name:    "miruken",
-        version: "2.0.39",
         exports: "Enum,Flags,Variance,Protocol,StrictProtocol,Delegate,Miruken,MetaStep,MetaMacro," +
                  "Initializing,Disposing,DisposingMixin,Resolving,Invoking,Parenting,Starting,Startup," +
                  "Facet,Interceptor,InterceptorSelector,ProxyBuilder,Modifier,ArrayManager,IndexedList," +
