@@ -607,6 +607,9 @@ new function () { // closure
                                 },
                                 transitionTo: function (controller, template, policy, composer) {
                                     var content = this._expandTemplate(template, controller);
+                                    if (content.length > 1) {
+                                        content = angular.element('<div/>').html(content);
+                                    }
                                     if (modal) {
                                         var provider     = modal.style || ModalProviding,
                                             modalScope   = this._layerScope,
@@ -698,8 +701,7 @@ new function () { // closure
                 }
             }); 
         },
-        createRegion: function (tag, element, $templates, $compile, $q, $timeout)
-        {
+        createRegion: function (tag, element, $templates, $compile, $q, $timeout) {
             return new PartialRegion(tag, element, $templates, $compile, $q, $timeout);
         }
     });
@@ -881,8 +883,7 @@ new function () { // closure
      */    
     var RouteRegionDirective = RegionDirective.extend({
         scope: false,
-        createRegion: function (tag, element, $templates, $compile, $q, $timeout)
-        {
+        createRegion: function (tag, element, $templates, $compile, $q, $timeout) {
             return new RouteRegion(tag, element, $templates, $compile, $q, $timeout);
         }
     });
