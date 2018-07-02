@@ -9943,6 +9943,10 @@ new function () { // closure
                 initiator = composer.resolve(Controller),
                 ctx       = push ? context.newChild() : context;
 
+            if (!push && initiator != null && (initiator.context == ctx)) {
+                initiator.context = null;
+            }
+            
             return Promise.resolve(ctx.resolve(controller))
                 .then(function (ctrl) {
                     if (!ctrl) {
@@ -9952,9 +9956,6 @@ new function () { // closure
                     try {
                         if (push) {
                             composer = composer.pushLayer();
-                        } else if ((ctrl != initiator) && (initiator != null) &&
-                                   (initiator.context == ctx)) {
-                            initiator.context = null;
                         }
                         var io = ctx === context ? composer
                                : ctx.$self().next(composer);
